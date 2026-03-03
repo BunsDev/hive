@@ -64,8 +64,8 @@ export function UsageIndicator(): React.JSX.Element | null {
 
   if (!usage) return null
 
-  const fiveHourPercent = usage.five_hour.utilization * 100
-  const sevenDayPercent = usage.seven_day.utilization * 100
+  const fiveHourPercent = Math.round(usage.five_hour.utilization)
+  const sevenDayPercent = Math.round(usage.seven_day.utilization)
   const fiveHourReset = formatResetTime(usage.five_hour.resets_at, 'five_hour')
   const sevenDayReset = formatResetTime(usage.seven_day.resets_at, 'seven_day')
 
