@@ -41,8 +41,8 @@ import { useProjectStore } from '@/stores/useProjectStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileTreeStore } from '@/stores/useFileTreeStore'
 import { mapOpencodeMessagesToSessionViewMessages } from '@/lib/opencode-transcript'
-import { COMPLETION_WORDS, formatCompletionDuration } from '@/lib/format-utils'
-import { messageSendTimes, lastSendMode } from '@/lib/message-send-times'
+import { COMPLETION_WORDS, formatCompletionDuration, formatElapsedTimer } from '@/lib/format-utils'
+import { messageSendTimes, lastSendMode, userExplicitSendTimes } from '@/lib/message-send-times'
 import beeIcon from '@/assets/bee.png'
 
 // Stable empty array to avoid creating new references in selectors
@@ -352,6 +352,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const [sessionRetry, setSessionRetry] = useState<SessionRetryState | null>(null)
   const [sessionErrorMessage, setSessionErrorMessage] = useState<string | null>(null)
   const [retryTickMs, setRetryTickMs] = useState<number>(Date.now())
+  const [elapsedTickMs, setElapsedTickMs] = useState(Date.now())
 
   // Prompt history key: works for both worktree and connection sessions
   const historyKey = worktreeId ?? connectionId
@@ -2736,6 +2737,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
           // Start completion badge timer
           messageSendTimes.set(sessionId, Date.now())
+          userExplicitSendTimes.set(sessionId, Date.now())
           lastSendMode.set(sessionId, 'ask')
           useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
 
@@ -2825,6 +2827,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       // Start the completion badge timer from when the user sends the message
       messageSendTimes.set(sessionId, Date.now())
+      userExplicitSendTimes.set(sessionId, Date.now())
 
       // Record the mode at send time — used to derive "Plan ready" vs "Ready"
       const currentModeForStatus = useSessionStore.getState().getSessionMode(sessionId)
@@ -3078,6 +3081,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
         setIsStreaming(true)
         setIsSending(true)
+        userExplicitSendTimes.set(sessionId, Date.now())
 
         // Transition the ExitPlanMode tool card to "accepted" state
         updateStreamingPartsRef((parts) =>
@@ -3113,6 +3117,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const handlePlanReject = useCallback(
     async (feedback: string) => {
       if (!worktreePath || !pendingPlan) return
+      userExplicitSendTimes.set(sessionId, Date.now())
       const pendingBeforeAction = pendingPlan
       useSessionStore.getState().clearPendingPlan(sessionId)
       useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
@@ -3726,6 +3731,20 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     }
   }, [sessionRetry?.next])
 
+  const isActive = isStreaming || isSending
+  useEffect(() => {
+    if (!isActive) return
+    setElapsedTickMs(Date.now())
+    const timer = window.setInterval(() => setElapsedTickMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isActive])
+
+  const elapsedTimerText = useMemo(() => {
+    const sendTime = userExplicitSendTimes.get(sessionId)
+    if (!sendTime) return null
+    return formatElapsedTimer(elapsedTickMs - sendTime)
+  }, [sessionId, elapsedTickMs])
+
   // Render based on view state
   if (viewState.status === 'connecting') {
     return (
@@ -4048,10 +4067,22 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   modelId={currentModelId}
                   providerId={currentProviderId}
                 />
-                <span className="text-xs text-muted-foreground">
-                  {pendingPlan
-                    ? 'Enter to send feedback to revise the plan'
-                    : 'Enter to send, Shift+Enter for new line'}
+                <span
+                  className={cn(
+                    'text-xs tabular-nums',
+                    elapsedTimerText && isActive
+                      ? activeQuestion
+                        ? 'text-amber-500 font-semibold'
+                        : mode === 'build'
+                          ? 'text-blue-500 font-semibold'
+                          : 'text-violet-500 font-semibold'
+                      : 'text-muted-foreground'
+                  )}
+                >
+                  {elapsedTimerText
+                    ?? (pendingPlan
+                      ? 'Enter to send feedback to revise the plan'
+                      : 'Enter to send, Shift+Enter for new line')}
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
