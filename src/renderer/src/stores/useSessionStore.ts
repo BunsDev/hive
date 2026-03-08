@@ -23,7 +23,7 @@ interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   mode: SessionMode
   model_provider_id: string | null
   model_id: string | null
@@ -76,7 +76,7 @@ interface SessionState {
   createSession: (
     worktreeId: string,
     projectId: string,
-    agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
   closeSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>
   reopenSession: (
@@ -118,7 +118,7 @@ interface SessionState {
   loadConnectionSessions: (connectionId: string) => Promise<void>
   createConnectionSession: (
     connectionId: string,
-    agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
   setActiveConnectionSession: (sessionId: string | null) => void
   setActiveConnection: (connectionId: string | null) => void
@@ -264,7 +264,7 @@ export const useSessionStore = create<SessionState>()(
       createSession: async (
         worktreeId: string,
         projectId: string,
-        agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
       ) => {
         try {
           // Resolve default agent SDK from settings
@@ -822,7 +822,7 @@ export const useSessionStore = create<SessionState>()(
         }
 
         // Find the session's SDK to route correctly (search both scopes)
-        let agentSdk: 'opencode' | 'claude-code' | 'terminal' = 'opencode'
+        let agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' = 'opencode'
         for (const sessions of get().sessionsByWorktree.values()) {
           const found = sessions.find((s) => s.id === sessionId)
           if (found?.agent_sdk) {
@@ -1173,7 +1173,7 @@ export const useSessionStore = create<SessionState>()(
       // Create a session scoped to a connection
       createConnectionSession: async (
         connectionId: string,
-        agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
       ) => {
         try {
           // Look up the connection to get the first member's project_id
@@ -1186,7 +1186,7 @@ export const useSessionStore = create<SessionState>()(
 
           // Determine default model and agent SDK from global settings
           let defaultModel: { providerID: string; modelID: string; variant?: string } | null = null
-          let defaultAgentSdk: 'opencode' | 'claude-code' | 'terminal' = 'opencode'
+          let defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' = 'opencode'
           try {
             const { useSettingsStore } = await import('./useSettingsStore')
             defaultAgentSdk =

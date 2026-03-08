@@ -35,6 +35,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   claudeImpl.setDatabaseService(db)
   claudeImpl.setClaudeBinaryPath(claudeBinaryPath)
 
+  // Placeholder for OpenCode — not available in headless mode
   const openCodePlaceholder = {
     id: 'opencode' as const,
     capabilities: {
@@ -69,7 +70,9 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
     renameSession: async () => {},
     setMainWindow: () => {}
   } satisfies AgentSdkImplementer
-  const sdkManager = new AgentSdkManager(openCodePlaceholder, claudeImpl)
+
+  // Registry of SDK implementers — add new implementers here (e.g. codex)
+  const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl])
 
   // EventBus singleton
   const eventBus = getEventBus()

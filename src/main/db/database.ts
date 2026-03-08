@@ -746,11 +746,15 @@ export class DatabaseService {
     return row ?? null
   }
 
-  getAgentSdkForSession(agentSessionId: string): 'opencode' | 'claude-code' | null {
+  getAgentSdkForSession(
+    agentSessionId: string
+  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | null {
     const db = this.getDb()
     const row = db
       .prepare('SELECT agent_sdk FROM sessions WHERE opencode_session_id = ? LIMIT 1')
-      .get(agentSessionId) as { agent_sdk: 'opencode' | 'claude-code' } | undefined
+      .get(agentSessionId) as
+      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' }
+      | undefined
     return row?.agent_sdk ?? null
   }
 

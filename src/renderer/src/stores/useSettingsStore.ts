@@ -71,7 +71,7 @@ export interface AppSettings {
   showUsageIndicator: boolean
 
   // Agent SDK
-  defaultAgentSdk: 'opencode' | 'claude-code' | 'terminal'
+  defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
 
   // Setup
   initialSetupComplete: boolean

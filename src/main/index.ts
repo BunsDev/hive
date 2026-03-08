@@ -528,7 +528,7 @@ app.whenReady().then(async () => {
       renameSession: async () => {},
       setMainWindow: () => {}
     } satisfies AgentSdkImplementer
-    const sdkManager = new AgentSdkManager(openCodePlaceholder, claudeImpl)
+    const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl])
     sdkManager.setMainWindow(mainWindow)
 
     const databaseService = getDatabase()
