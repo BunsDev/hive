@@ -1,6 +1,12 @@
 // src/server/resolvers/helpers/sdk-dispatch.ts
 import type { GraphQLContext } from '../../context'
-import type { AgentSdkImplementer } from '../../../main/services/agent-sdk-types'
+import type { AgentSdkId, AgentSdkImplementer } from '../../../main/services/agent-sdk-types'
+
+/** Map GraphQL agentSdk enum value to internal AgentSdkId */
+export function mapGraphQLSdkToInternal(gqlSdk: string): AgentSdkId {
+  if (gqlSdk === 'claude_code') return 'claude-code'
+  return gqlSdk as AgentSdkId
+}
 
 /**
  * SDK dispatch by agent session ID.
