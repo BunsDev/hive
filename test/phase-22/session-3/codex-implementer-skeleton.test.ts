@@ -134,23 +134,17 @@ describe('CodexImplementer skeleton', () => {
 
   // ── Unimplemented lifecycle methods throw ──────────────────────
 
-  describe('unimplemented lifecycle methods throw descriptive errors', () => {
-    it('connect throws', async () => {
-      await expect(impl.connect('/path', 'session-1')).rejects.toThrow(
-        'CodexImplementer.connect() not yet implemented'
-      )
+  describe('lifecycle methods are implemented (session 4)', () => {
+    it('connect is a function', () => {
+      expect(typeof impl.connect).toBe('function')
     })
 
-    it('reconnect throws', async () => {
-      await expect(impl.reconnect('/path', 'agent-1', 'hive-1')).rejects.toThrow(
-        'CodexImplementer.reconnect() not yet implemented'
-      )
+    it('reconnect is a function', () => {
+      expect(typeof impl.reconnect).toBe('function')
     })
 
-    it('disconnect throws', async () => {
-      await expect(impl.disconnect('/path', 'agent-1')).rejects.toThrow(
-        'CodexImplementer.disconnect() not yet implemented'
-      )
+    it('disconnect is a function', () => {
+      expect(typeof impl.disconnect).toBe('function')
     })
   })
 
