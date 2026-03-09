@@ -173,7 +173,7 @@ describe('CodexImplementer.prompt()', () => {
 
   // ── Event forwarding ────────────────────────────────────────
 
-  it('forwards mapped content.delta events to renderer', async () => {
+  it('forwards mapped item/agentMessage/delta events to renderer', async () => {
     seedSession()
 
     simulateManagerEvents([
@@ -183,8 +183,9 @@ describe('CodexImplementer.prompt()', () => {
         provider: 'codex',
         threadId: 'thread-1',
         createdAt: new Date().toISOString(),
-        method: 'content.delta',
-        payload: { delta: { type: 'text', text: 'Hello' } }
+        method: 'item/agentMessage/delta',
+        textDelta: 'Hello',
+        payload: { delta: 'Hello' }
       },
       {
         id: 'e2',
@@ -222,8 +223,9 @@ describe('CodexImplementer.prompt()', () => {
         provider: 'codex',
         threadId: 'thread-OTHER',
         createdAt: new Date().toISOString(),
-        method: 'content.delta',
-        payload: { delta: { type: 'text', text: 'Wrong thread' } }
+        method: 'item/agentMessage/delta',
+        textDelta: 'Wrong thread',
+        payload: { delta: 'Wrong thread' }
       },
       {
         id: 'e-done',
@@ -263,8 +265,9 @@ describe('CodexImplementer.prompt()', () => {
         provider: 'codex',
         threadId: 'thread-1',
         createdAt: new Date().toISOString(),
-        method: 'content.delta',
-        payload: { delta: { type: 'text', text: 'Response text' } }
+        method: 'item/agentMessage/delta',
+        textDelta: 'Response text',
+        payload: { delta: 'Response text' }
       },
       {
         id: 'e2',

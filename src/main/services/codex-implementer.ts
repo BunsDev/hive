@@ -13,7 +13,7 @@ import {
   CodexAppServerManager,
   type CodexManagerEvent
 } from './codex-app-server-manager'
-import { mapCodexEventToStreamEvents } from './codex-event-mapper'
+import { mapCodexEventToStreamEvents, contentStreamKindFromMethod } from './codex-event-mapper'
 import { asObject, asString } from './codex-utils'
 import type { DatabaseService } from '../db/database'
 
@@ -363,18 +363,15 @@ export class CodexImplementer implements AgentSdkImplementer {
       }
 
       // Accumulate text for message history
-      if (event.method === 'content.delta') {
+      const streamKind = contentStreamKindFromMethod(event.method)
+      if (streamKind) {
         const payload = event.payload as Record<string, unknown> | undefined
-        const delta = payload?.delta as Record<string, unknown> | undefined
-        const deltaType = delta?.type as string | undefined
-
-        const deltaText = (delta?.text as string)
-          ?? (payload?.assistantText as string)
-          ?? (payload?.reasoningText as string)
-          ?? event.textDelta
+        const deltaText = event.textDelta
+          ?? asString(asObject(payload)?.delta)
+          ?? asString(asObject(payload)?.text)
           ?? ''
 
-        if (deltaType === 'reasoning' || payload?.reasoningText) {
+        if (streamKind === 'reasoning' || streamKind === 'reasoning_summary') {
           reasoningText += deltaText
         } else {
           assistantText += deltaText

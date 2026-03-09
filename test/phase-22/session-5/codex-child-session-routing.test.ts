@@ -258,8 +258,9 @@ describe('Codex child session routing', () => {
           provider: 'codex',
           threadId: 'thread-a',
           createdAt: new Date().toISOString(),
-          method: 'content.delta',
-          payload: { delta: { type: 'text', text: 'Answer A' } }
+          method: 'item/agentMessage/delta',
+          textDelta: 'Answer A',
+          payload: { delta: 'Answer A' }
         },
         {
           id: 'e2',
@@ -283,8 +284,9 @@ describe('Codex child session routing', () => {
           provider: 'codex',
           threadId: 'thread-b',
           createdAt: new Date().toISOString(),
-          method: 'content.delta',
-          payload: { delta: { type: 'text', text: 'Answer B' } }
+          method: 'item/agentMessage/delta',
+          textDelta: 'Answer B',
+          payload: { delta: 'Answer B' }
         },
         {
           id: 'e4',

@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect } from 'vitest'
 import {
-  mapCodexEventToStreamEvents
+  mapCodexEventToStreamEvents,
+  contentStreamKindFromMethod
 } from '../../../src/main/services/codex-event-mapper'
 import type { CodexManagerEvent } from '../../../src/main/services/codex-app-server-manager'
 
@@ -24,13 +25,39 @@ const HIVE_SESSION = 'hive-session-abc'
 describe('mapCodexEventToStreamEvents', () => {
   // ── Content deltas ──────────────────────────────────────────
 
-  describe('content.delta', () => {
-    it('maps assistant text delta (structured delta)', () => {
+  describe('contentStreamKindFromMethod', () => {
+    it('classifies item/agentMessage/delta as assistant', () => {
+      expect(contentStreamKindFromMethod('item/agentMessage/delta')).toBe('assistant')
+    })
+
+    it('classifies item/reasoning/textDelta as reasoning', () => {
+      expect(contentStreamKindFromMethod('item/reasoning/textDelta')).toBe('reasoning')
+    })
+
+    it('classifies item/reasoning/summaryTextDelta as reasoning_summary', () => {
+      expect(contentStreamKindFromMethod('item/reasoning/summaryTextDelta')).toBe('reasoning_summary')
+    })
+
+    it('classifies item/commandExecution/outputDelta as command_output', () => {
+      expect(contentStreamKindFromMethod('item/commandExecution/outputDelta')).toBe('command_output')
+    })
+
+    it('classifies item/fileChange/outputDelta as file_change_output', () => {
+      expect(contentStreamKindFromMethod('item/fileChange/outputDelta')).toBe('file_change_output')
+    })
+
+    it('returns null for unknown methods', () => {
+      expect(contentStreamKindFromMethod('content.delta')).toBeNull()
+      expect(contentStreamKindFromMethod('turn/started')).toBeNull()
+      expect(contentStreamKindFromMethod('item/plan/delta')).toBeNull()
+    })
+  })
+
+  describe('content streaming deltas (actual Codex methods)', () => {
+    it('maps item/agentMessage/delta with string delta payload', () => {
       const event = makeEvent({
-        method: 'content.delta',
-        payload: {
-          delta: { type: 'text', text: 'Hello world' }
-        }
+        method: 'item/agentMessage/delta',
+        payload: { delta: 'Hello world' }
       })
 
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
@@ -43,12 +70,22 @@ describe('mapCodexEventToStreamEvents', () => {
       })
     })
 
-    it('maps reasoning text delta', () => {
+    it('maps item/agentMessage/delta with textDelta on event', () => {
       const event = makeEvent({
-        method: 'content.delta',
-        payload: {
-          delta: { type: 'reasoning', text: 'Let me think...' }
-        }
+        method: 'item/agentMessage/delta',
+        textDelta: 'direct text'
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].data).toEqual({ type: 'text', text: 'direct text' })
+    })
+
+    it('maps item/reasoning/textDelta to reasoning type', () => {
+      const event = makeEvent({
+        method: 'item/reasoning/textDelta',
+        payload: { text: 'Let me think...' }
       })
 
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
@@ -61,21 +98,82 @@ describe('mapCodexEventToStreamEvents', () => {
       })
     })
 
-    it('maps textDelta field on event', () => {
+    it('maps item/reasoning/summaryTextDelta to reasoning type', () => {
       const event = makeEvent({
-        method: 'content.delta',
-        textDelta: 'direct text'
+        method: 'item/reasoning/summaryTextDelta',
+        payload: { text: 'Summary of reasoning' }
       })
 
       const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
 
       expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({ type: 'text', text: 'direct text' })
+      expect(result[0].data).toEqual({ type: 'reasoning', text: 'Summary of reasoning' })
+    })
+
+    it('maps item/commandExecution/outputDelta to text type', () => {
+      const event = makeEvent({
+        method: 'item/commandExecution/outputDelta',
+        payload: { text: 'command output line' }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].data).toEqual({ type: 'text', text: 'command output line' })
+    })
+
+    it('maps item/fileChange/outputDelta to text type', () => {
+      const event = makeEvent({
+        method: 'item/fileChange/outputDelta',
+        payload: { text: 'file change diff' }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].data).toEqual({ type: 'text', text: 'file change diff' })
+    })
+
+    it('maps item/plan/delta to text type', () => {
+      const event = makeEvent({
+        method: 'item/plan/delta',
+        payload: { text: 'plan step 1' }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].data).toEqual({ type: 'text', text: 'plan step 1' })
+    })
+
+    it('returns empty array for delta with no text', () => {
+      const event = makeEvent({
+        method: 'item/agentMessage/delta',
+        payload: {}
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(0)
+    })
+
+    it('also handles structured delta object (backward compat)', () => {
+      const event = makeEvent({
+        method: 'item/agentMessage/delta',
+        payload: {
+          delta: { type: 'text', text: 'structured delta' }
+        }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].data).toEqual({ type: 'text', text: 'structured delta' })
     })
 
     it('maps assistantText at payload level', () => {
       const event = makeEvent({
-        method: 'content.delta',
+        method: 'item/agentMessage/delta',
         payload: { assistantText: 'payload assistant text' }
       })
 
@@ -87,7 +185,7 @@ describe('mapCodexEventToStreamEvents', () => {
 
     it('maps reasoningText at payload level', () => {
       const event = makeEvent({
-        method: 'content.delta',
+        method: 'item/reasoning/textDelta',
         payload: { reasoningText: 'payload reasoning text' }
       })
 
@@ -95,17 +193,6 @@ describe('mapCodexEventToStreamEvents', () => {
 
       expect(result).toHaveLength(1)
       expect(result[0].data).toEqual({ type: 'reasoning', text: 'payload reasoning text' })
-    })
-
-    it('returns empty array for content.delta with no text', () => {
-      const event = makeEvent({
-        method: 'content.delta',
-        payload: { delta: { type: 'unknown' } }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
     })
   })
 
@@ -529,8 +616,8 @@ describe('mapCodexEventToStreamEvents', () => {
   describe('session ID passthrough', () => {
     it('uses the provided hiveSessionId in all events', () => {
       const event = makeEvent({
-        method: 'content.delta',
-        payload: { delta: { type: 'text', text: 'x' } }
+        method: 'item/agentMessage/delta',
+        payload: { delta: 'x' }
       })
 
       const result = mapCodexEventToStreamEvents(event, 'custom-session-id')

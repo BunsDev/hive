@@ -803,6 +803,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   ): void {
     const route = this.readRouteFields(notification.params)
 
+    // Extract textDelta for streaming text notifications (matches t3code pattern)
+    const textDelta =
+      notification.method === 'item/agentMessage/delta'
+        ? asString(asObject(notification.params)?.delta)
+        : undefined
+
     this.emitEvent({
       id: randomUUID(),
       kind: 'notification',
@@ -812,6 +818,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       method: notification.method,
       turnId: route.turnId,
       itemId: route.itemId,
+      textDelta,
       payload: notification.params
     })
 

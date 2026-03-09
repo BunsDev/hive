@@ -2,6 +2,33 @@ import type { OpenCodeStreamEvent } from '@shared/types/opencode'
 import type { CodexManagerEvent } from './codex-app-server-manager'
 import { asObject, asString, asNumber } from './codex-utils'
 
+// ── Content stream kind classification ───────────────────────────
+
+export type ContentStreamKind =
+  | 'assistant'
+  | 'reasoning'
+  | 'reasoning_summary'
+  | 'command_output'
+  | 'file_change_output'
+
+/**
+ * Maps actual Codex app-server JSON-RPC notification method names to a
+ * ContentStreamKind. Returns null for methods that are not content deltas.
+ *
+ * These are the real method names the Codex app-server sends — NOT the
+ * internal `content.delta` runtime event that t3code's adapter layer uses.
+ */
+export function contentStreamKindFromMethod(method: string): ContentStreamKind | null {
+  switch (method) {
+    case 'item/agentMessage/delta': return 'assistant'
+    case 'item/reasoning/textDelta': return 'reasoning'
+    case 'item/reasoning/summaryTextDelta': return 'reasoning_summary'
+    case 'item/commandExecution/outputDelta': return 'command_output'
+    case 'item/fileChange/outputDelta': return 'file_change_output'
+    default: return null
+  }
+}
+
 // ── Content delta extraction ──────────────────────────────────────
 
 interface ContentDelta {
@@ -10,10 +37,10 @@ interface ContentDelta {
 }
 
 function extractContentDelta(event: CodexManagerEvent): ContentDelta | null {
-  // The event mapper handles content.delta notifications which carry text
+  // The event mapper handles content delta notifications which carry text
   // deltas for either assistant output or reasoning (thinking) output.
 
-  // Direct textDelta on event (set by some notification formats)
+  // Direct textDelta on event (set by manager for item/agentMessage/delta)
   if (event.textDelta) {
     return { kind: 'assistant', text: event.textDelta }
   }
@@ -23,7 +50,7 @@ function extractContentDelta(event: CodexManagerEvent): ContentDelta | null {
 
   const delta = asObject(payload.delta)
 
-  // Structured delta in payload
+  // Structured delta object in payload (e.g. { type: 'text', text: '...' })
   if (delta) {
     const text = asString(delta.text)
     if (text) {
@@ -31,6 +58,18 @@ function extractContentDelta(event: CodexManagerEvent): ContentDelta | null {
       const kind = deltaType === 'reasoning' ? 'reasoning' : 'assistant'
       return { kind, text }
     }
+  }
+
+  // Direct string delta in payload (item/agentMessage/delta sends this way)
+  const directDelta = asString(payload.delta)
+  if (directDelta) {
+    return { kind: 'assistant', text: directDelta }
+  }
+
+  // payload.text (some delta methods send text directly here)
+  const payloadText = asString(payload.text)
+  if (payloadText) {
+    return { kind: 'assistant', text: payloadText }
   }
 
   // Some formats put assistantText / reasoningText at payload level
@@ -155,15 +194,32 @@ export function mapCodexEventToStreamEvents(
 ): OpenCodeStreamEvent[] {
   const { method } = event
 
-  // ── Content deltas (text streaming) ──────────────────────────
-  if (method === 'content.delta') {
+  // ── Content deltas — actual Codex notification methods ───────
+  const streamKind = contentStreamKindFromMethod(method)
+  if (streamKind) {
     const delta = extractContentDelta(event)
     if (!delta) return []
 
     return [{
       type: 'message.part.updated',
       sessionId: hiveSessionId,
-      data: { type: delta.kind === 'reasoning' ? 'reasoning' : 'text', text: delta.text }
+      data: {
+        type: streamKind === 'reasoning' || streamKind === 'reasoning_summary'
+          ? 'reasoning' : 'text',
+        text: delta.text
+      }
+    }]
+  }
+
+  // ── Plan deltas ───────────────────────────────────────────────
+  if (method === 'item/plan/delta') {
+    const delta = extractContentDelta(event)
+    if (!delta) return []
+
+    return [{
+      type: 'message.part.updated',
+      sessionId: hiveSessionId,
+      data: { type: 'text', text: delta.text }
     }]
   }
 
