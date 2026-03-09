@@ -67,6 +67,9 @@ export interface AppSettings {
   // Model icons
   showModelIcons: boolean
 
+  // Model provider
+  showModelProvider: boolean
+
   // Usage indicator
   showUsageIndicator: boolean
 
@@ -107,6 +110,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   customChromeCommand: '',
   modelVariantDefaults: {},
   showModelIcons: false,
+  showModelProvider: false,
   showUsageIndicator: true,
   defaultAgentSdk: 'opencode',
   stripAtMentions: true,
@@ -214,6 +218,7 @@ function extractSettings(state: SettingsState): AppSettings {
     customChromeCommand: state.customChromeCommand,
     modelVariantDefaults: state.modelVariantDefaults,
     showModelIcons: state.showModelIcons,
+    showModelProvider: state.showModelProvider,
     showUsageIndicator: state.showUsageIndicator,
     defaultAgentSdk: state.defaultAgentSdk,
     stripAtMentions: state.stripAtMentions,
@@ -392,6 +397,7 @@ export const useSettingsStore = create<SettingsState>()(
         customChromeCommand: state.customChromeCommand,
         modelVariantDefaults: state.modelVariantDefaults,
         showModelIcons: state.showModelIcons,
+        showModelProvider: state.showModelProvider,
         showUsageIndicator: state.showUsageIndicator,
         defaultAgentSdk: state.defaultAgentSdk,
         activeSection: state.activeSection,
