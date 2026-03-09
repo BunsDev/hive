@@ -584,7 +584,11 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
         if (mainWindow) {
           mainWindow.webContents.send('git:statusChanged', { worktreePath })
         }
-        try { getEventBus().emit('git:statusChanged', { worktreePath }) } catch { /* EventBus not available */ }
+        try {
+          getEventBus().emit('git:statusChanged', { worktreePath })
+        } catch {
+          /* EventBus not available */
+        }
 
         return { success: true }
       } catch (error) {
@@ -671,11 +675,7 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
   // Stage a single hunk by applying a patch to the index
   ipcMain.handle(
     'git:stageHunk',
-    async (
-      _event,
-      worktreePath: string,
-      patch: string
-    ): Promise<GitOperationResult> => {
+    async (_event, worktreePath: string, patch: string): Promise<GitOperationResult> => {
       log.info('Staging hunk', { worktreePath })
       try {
         const gitService = createGitService(worktreePath)
@@ -693,11 +693,7 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
   // Unstage a single hunk by reverse-applying a patch from the index
   ipcMain.handle(
     'git:unstageHunk',
-    async (
-      _event,
-      worktreePath: string,
-      patch: string
-    ): Promise<GitOperationResult> => {
+    async (_event, worktreePath: string, patch: string): Promise<GitOperationResult> => {
       log.info('Unstaging hunk', { worktreePath })
       try {
         const gitService = createGitService(worktreePath)
@@ -715,11 +711,7 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
   // Revert a single hunk in the working tree
   ipcMain.handle(
     'git:revertHunk',
-    async (
-      _event,
-      worktreePath: string,
-      patch: string
-    ): Promise<GitOperationResult> => {
+    async (_event, worktreePath: string, patch: string): Promise<GitOperationResult> => {
       log.info('Reverting hunk', { worktreePath })
       try {
         const gitService = createGitService(worktreePath)
@@ -741,7 +733,11 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
       _event,
       worktreePath: string,
       branch: string
-    ): Promise<{ success: boolean; files?: { relativePath: string; status: string }[]; error?: string }> => {
+    ): Promise<{
+      success: boolean
+      files?: { relativePath: string; status: string }[]
+      error?: string
+    }> => {
       try {
         const gitService = createGitService(worktreePath)
         return await gitService.getBranchDiffFiles(branch)
@@ -821,11 +817,9 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
         return { success: true, prs }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        log.error(
-          'Failed to list PRs',
-          error instanceof Error ? error : new Error(message),
-          { projectPath }
-        )
+        log.error('Failed to list PRs', error instanceof Error ? error : new Error(message), {
+          projectPath
+        })
 
         if (message.includes('gh: command not found') || message.includes('not found')) {
           return { success: false, prs: [], error: 'GitHub CLI (gh) is not installed' }

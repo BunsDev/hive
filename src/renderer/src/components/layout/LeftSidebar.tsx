@@ -143,9 +143,7 @@ export function LeftSidebar(): React.JSX.Element {
           <ConnectionList />
           <ProjectList onAddProject={handleAddProject} />
         </div>
-        {!connectionModeActive && (
-          showUsageIndicator ? <UsageIndicator /> : <SpacesTabBar />
-        )}
+        {!connectionModeActive && (showUsageIndicator ? <UsageIndicator /> : <SpacesTabBar />)}
       </aside>
       <ResizeHandle onResize={handleResize} direction="left" />
     </div>

@@ -46,9 +46,7 @@ export function ModelIcon({ worktreeId, className }: ModelIconProps): React.JSX.
 
   // Claude Agent SDK always uses Claude models
   if (isClaudeCodeSdk) {
-    return (
-      <img src={claudeIcon} alt="Claude" className={cn(className)} draggable={false} />
-    )
+    return <img src={claudeIcon} alt="Claude" className={cn(className)} draggable={false} />
   }
 
   const matched = getModelIcon(lastModelId)

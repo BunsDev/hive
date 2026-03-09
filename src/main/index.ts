@@ -50,9 +50,7 @@ const isHeadless = cliArgs.includes('--headless')
 const headlessPort = cliArgs.includes('--port')
   ? parseInt(cliArgs[cliArgs.indexOf('--port') + 1])
   : undefined
-const headlessBind = cliArgs.includes('--bind')
-  ? cliArgs[cliArgs.indexOf('--bind') + 1]
-  : undefined
+const headlessBind = cliArgs.includes('--bind') ? cliArgs[cliArgs.indexOf('--bind') + 1] : undefined
 const isRotateKey = cliArgs.includes('--rotate-key')
 const isRegenCerts = cliArgs.includes('--regen-certs')
 const isShowStatus = cliArgs.includes('--show-status')
@@ -326,12 +324,13 @@ function registerSystemHandlers(): void {
 
     try {
       const execPath = process.execPath
-      const scriptContent = [
-        '#!/bin/bash',
-        '# hive-server — Hive headless mode launcher',
-        '# Installed by Hive.app',
-        `exec "${execPath}" --headless "$@"`
-      ].join('\n') + '\n'
+      const scriptContent =
+        [
+          '#!/bin/bash',
+          '# hive-server — Hive headless mode launcher',
+          '# Installed by Hive.app',
+          `exec "${execPath}" --headless "$@"`
+        ].join('\n') + '\n'
 
       // Write to a temp file first (no admin needed), then move with elevation
       const tmpPath = join(app.getPath('temp'), 'hive-server-install')

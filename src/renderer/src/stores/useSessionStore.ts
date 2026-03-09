@@ -853,7 +853,9 @@ export const useSessionStore = create<SessionState>()(
         // skipBackendPush: we already pushed to the backend above
         try {
           const { useSettingsStore } = await import('./useSettingsStore')
-          useSettingsStore.getState().setSelectedModelForSdk(agentSdk, model, { skipBackendPush: true })
+          useSettingsStore
+            .getState()
+            .setSelectedModelForSdk(agentSdk, model, { skipBackendPush: true })
         } catch {
           /* non-critical */
         }

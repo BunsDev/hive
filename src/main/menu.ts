@@ -232,7 +232,7 @@ export function buildMenu(mainWindow: BrowserWindow, isDev: boolean): Menu {
           id: 'check-for-updates',
           label: 'Check for Updates...',
           click: () => {
-            updaterService.checkForUpdates()
+            updaterService.checkForUpdates({ manual: true })
           }
         },
         { type: 'separator' },

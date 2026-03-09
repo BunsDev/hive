@@ -141,7 +141,12 @@ export const useFileViewerStore = create<FileViewerState>((set) => ({
   },
 
   closeAllFiles: () => {
-    set({ openFiles: new Map(), activeFilePath: null, activeDiff: null, contextEditorWorktreeId: null })
+    set({
+      openFiles: new Map(),
+      activeFilePath: null,
+      activeDiff: null,
+      contextEditorWorktreeId: null
+    })
   },
 
   setActiveDiff: (diff: ActiveDiff | null) => {

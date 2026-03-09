@@ -337,11 +337,9 @@ export async function duplicateWorktreeOp(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    log.error(
-      'Worktree duplication error',
-      error instanceof Error ? error : new Error(message),
-      { params }
-    )
+    log.error('Worktree duplication error', error instanceof Error ? error : new Error(message), {
+      params
+    })
     return {
       success: false,
       error: message

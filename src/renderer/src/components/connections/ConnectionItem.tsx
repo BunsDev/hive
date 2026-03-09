@@ -240,8 +240,9 @@ export function ConnectionItem({
   }, [onManageWorktrees, connection.id])
 
   // Build the project names string from unique project names
-  const projectNames =
-    [...new Set(connection.members?.map((m) => m.project_name) || [])].join(' + ')
+  const projectNames = [...new Set(connection.members?.map((m) => m.project_name) || [])].join(
+    ' + '
+  )
 
   // Display logic: custom name takes priority over project names
   const hasCustomName = !!connection.custom_name
@@ -260,11 +261,7 @@ export function ConnectionItem({
         Rename
       </ContextMenuItem>
       <ContextMenuItem onClick={handleTogglePin}>
-        {isPinned ? (
-          <PinOff className="h-4 w-4 mr-2" />
-        ) : (
-          <Pin className="h-4 w-4 mr-2" />
-        )}
+        {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
         {isPinned ? 'Unpin' : 'Pin'}
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -349,7 +346,10 @@ export function ConnectionItem({
                     // Always refocus during the first 500ms (menu closing period)
                     // User can press Escape to cancel if needed
                     setTimeout(() => {
-                      if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+                      if (
+                        renameInputRef.current &&
+                        document.activeElement !== renameInputRef.current
+                      ) {
                         renameInputRef.current.focus()
                         renameInputRef.current.select()
                       }
@@ -438,11 +438,7 @@ export function ConnectionItem({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePin}>
-                {isPinned ? (
-                  <PinOff className="h-4 w-4 mr-2" />
-                ) : (
-                  <Pin className="h-4 w-4 mr-2" />
-                )}
+                {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
                 {isPinned ? 'Unpin' : 'Pin'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />

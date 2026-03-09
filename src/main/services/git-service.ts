@@ -3,7 +3,12 @@ import { app } from 'electron'
 import { join, basename, dirname } from 'path'
 import { existsSync, mkdirSync, rmSync, cpSync, writeFileSync, unlinkSync, readdirSync } from 'fs'
 import { tmpdir } from 'os'
-import { selectUniqueBreedName, ALL_BREED_NAMES, LEGACY_CITY_NAMES, type BreedType } from './breed-names'
+import {
+  selectUniqueBreedName,
+  ALL_BREED_NAMES,
+  LEGACY_CITY_NAMES,
+  type BreedType
+} from './breed-names'
 import { createLogger } from './logger'
 
 const log = createLogger({ component: 'GitService' })
@@ -277,7 +282,11 @@ export class GitService {
         }
 
         // Combine all existing names to avoid
-        const existingNames = new Set([...existingBranches, ...existingWorktreeBranches, ...existingDirs])
+        const existingNames = new Set([
+          ...existingBranches,
+          ...existingWorktreeBranches,
+          ...existingDirs
+        ])
 
         // Select a unique breed name
         const breedName = selectUniqueBreedName(existingNames, breedType)
@@ -930,12 +939,19 @@ export class GitService {
    * so we must write the patch string to disk first.
    */
   private async applyPatchString(patch: string, options: string[]): Promise<void> {
-    const tmpFile = join(tmpdir(), `hive-patch-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`)
+    const tmpFile = join(
+      tmpdir(),
+      `hive-patch-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`
+    )
     try {
       writeFileSync(tmpFile, patch, 'utf-8')
       await this.git.applyPatch(tmpFile, options)
     } finally {
-      try { unlinkSync(tmpFile) } catch { /* ignore cleanup errors */ }
+      try {
+        unlinkSync(tmpFile)
+      } catch {
+        /* ignore cleanup errors */
+      }
     }
   }
 
@@ -1210,9 +1226,7 @@ export class GitService {
           const branch = lines
             .find((l) => l.startsWith('branch '))
             ?.replace('branch refs/heads/', '')
-          const wtPath = lines
-            .find((l) => l.startsWith('worktree '))
-            ?.replace('worktree ', '')
+          const wtPath = lines.find((l) => l.startsWith('worktree '))?.replace('worktree ', '')
           if (branch === branchName && wtPath) {
             // Already checked out — duplicate it
             return this.duplicateWorktree(branchName, wtPath, projectName)
@@ -1452,9 +1466,11 @@ export class GitService {
    * Get list of files changed between the current worktree and a branch
    * Uses git diff --name-status to get file paths and their change status
    */
-  async getBranchDiffFiles(
-    branch: string
-  ): Promise<{ success: boolean; files?: { relativePath: string; status: string }[]; error?: string }> {
+  async getBranchDiffFiles(branch: string): Promise<{
+    success: boolean
+    files?: { relativePath: string; status: string }[]
+    error?: string
+  }> {
     if (!branch || branch.startsWith('-')) {
       return { success: false, error: 'Invalid branch name' }
     }
@@ -1536,12 +1552,8 @@ export function canonicalizeBranchName(title: string): string {
 export function isAutoNamedBranch(branchName: string): boolean {
   const lower = branchName.toLowerCase()
   return (
-    ALL_BREED_NAMES.some(
-      (b) => b === lower || new RegExp(`^${b}-(?:v)?\\d+$`).test(lower)
-    ) ||
-    LEGACY_CITY_NAMES.some(
-      (c) => c === lower || new RegExp(`^${c}-(?:v)?\\d+$`).test(lower)
-    )
+    ALL_BREED_NAMES.some((b) => b === lower || new RegExp(`^${b}-(?:v)?\\d+$`).test(lower)) ||
+    LEGACY_CITY_NAMES.some((c) => c === lower || new RegExp(`^${c}-(?:v)?\\d+$`).test(lower))
   )
 }
 

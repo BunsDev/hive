@@ -55,9 +55,7 @@ export function ModelSelector({ sessionId }: ModelSelectorProps): React.JSX.Elem
   })
   const defaultAgentSdk = useSettingsStore((s) => s.defaultAgentSdk)
   const agentSdk = session?.agent_sdk ?? defaultAgentSdk ?? 'opencode'
-  const globalModel = useSettingsStore((state) =>
-    resolveModelForSdk(agentSdk, state)
-  )
+  const globalModel = useSettingsStore((state) => resolveModelForSdk(agentSdk, state))
   const sessionModel =
     session?.model_id && session.model_provider_id
       ? {

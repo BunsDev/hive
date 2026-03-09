@@ -331,77 +331,79 @@ export function ProjectItem({
           </div>
         </ContextMenuTrigger>
 
-        {!connectionModeActive && <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={handleStartEdit}>
-            <Pencil className="h-4 w-4 mr-2" />
-            Edit Name
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleOpenInFinder}>
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Open in Finder
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleCopyPath}>
-            <Copy className="h-4 w-4 mr-2" />
-            Copy Path
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => refreshLanguage(project.id)}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh Language
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleRefreshProject}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh Project
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => setBranchPickerOpen(true)}>
-            <GitBranch className="h-4 w-4 mr-2" />
-            New Workspace From...
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => useProjectStore.getState().openProjectSettings(project.id)}
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Project Settings
-          </ContextMenuItem>
-          {spaces.length > 0 && (
-            <>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <FolderHeart className="h-4 w-4 mr-2" />
-                  Assign to Space
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-40">
-                  {spaces.map((space) => {
-                    const isAssigned = projectSpaceIds.includes(space.id)
-                    return (
-                      <ContextMenuCheckboxItem
-                        key={space.id}
-                        checked={isAssigned}
-                        onSelect={(e) => {
-                          e.preventDefault()
-                          if (isAssigned) {
-                            removeProjectFromSpace(project.id, space.id)
-                          } else {
-                            assignProjectToSpace(project.id, space.id)
-                          }
-                        }}
-                      >
-                        {space.name}
-                      </ContextMenuCheckboxItem>
-                    )
-                  })}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-            </>
-          )}
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => setRemoveConfirmOpen(true)}
-            className="text-destructive focus:text-destructive focus:bg-destructive/10"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Remove from Hive
-          </ContextMenuItem>
-        </ContextMenuContent>}
+        {!connectionModeActive && (
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={handleStartEdit}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit Name
+            </ContextMenuItem>
+            <ContextMenuItem onClick={handleOpenInFinder}>
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Open in Finder
+            </ContextMenuItem>
+            <ContextMenuItem onClick={handleCopyPath}>
+              <Copy className="h-4 w-4 mr-2" />
+              Copy Path
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => refreshLanguage(project.id)}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh Language
+            </ContextMenuItem>
+            <ContextMenuItem onClick={handleRefreshProject}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh Project
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setBranchPickerOpen(true)}>
+              <GitBranch className="h-4 w-4 mr-2" />
+              New Workspace From...
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => useProjectStore.getState().openProjectSettings(project.id)}
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Project Settings
+            </ContextMenuItem>
+            {spaces.length > 0 && (
+              <>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <FolderHeart className="h-4 w-4 mr-2" />
+                    Assign to Space
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-40">
+                    {spaces.map((space) => {
+                      const isAssigned = projectSpaceIds.includes(space.id)
+                      return (
+                        <ContextMenuCheckboxItem
+                          key={space.id}
+                          checked={isAssigned}
+                          onSelect={(e) => {
+                            e.preventDefault()
+                            if (isAssigned) {
+                              removeProjectFromSpace(project.id, space.id)
+                            } else {
+                              assignProjectToSpace(project.id, space.id)
+                            }
+                          }}
+                        >
+                          {space.name}
+                        </ContextMenuCheckboxItem>
+                      )
+                    })}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              </>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => setRemoveConfirmOpen(true)}
+              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Remove from Hive
+            </ContextMenuItem>
+          </ContextMenuContent>
+        )}
       </ContextMenu>
 
       {/* Worktree List - shown when project is expanded */}

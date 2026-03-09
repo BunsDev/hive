@@ -187,7 +187,7 @@ function getToolLabel(name: string, input: Record<string, unknown>, cwd?: string
 
   // Show summary for todowrite (must be before 'write' check)
   if (isTodoWriteTool(lowerName)) {
-    const todos = Array.isArray(input.todos) ? input.todos as Array<{ status: string }> : []
+    const todos = Array.isArray(input.todos) ? (input.todos as Array<{ status: string }>) : []
     const completed = todos.filter((t) => t.status === 'completed').length
     return `${completed}/${todos.length} completed`
   }
@@ -405,7 +405,7 @@ function CollapsedContent({
 
   // TodoWrite (must be before 'write' check since name contains 'write')
   if (isTodoWriteTool(lowerName)) {
-    const todos = Array.isArray(input.todos) ? input.todos as Array<{ status: string }> : []
+    const todos = Array.isArray(input.todos) ? (input.todos as Array<{ status: string }>) : []
     const completed = todos.filter((t) => t.status === 'completed').length
     const inProgress = todos.filter((t) => t.status === 'in_progress').length
     return (
@@ -541,7 +541,9 @@ function CollapsedContent({
 
   // Question
   if (lowerName.includes('question')) {
-    const questions = Array.isArray(input.questions) ? input.questions as Array<{ header: string; question: string }> : []
+    const questions = Array.isArray(input.questions)
+      ? (input.questions as Array<{ header: string; question: string }>)
+      : []
     const questionCount = questions.length
     const firstHeader = questions[0]?.header || 'Question'
     return (
@@ -588,12 +590,14 @@ function CollapsedContent({
           <ClipboardCheck className="h-3.5 w-3.5" />
         </span>
         <span className="font-medium text-foreground shrink-0">Plan</span>
-        <span className={cn(
-          'text-[10px] rounded px-1 py-0.5 font-medium shrink-0',
-          isRejected
-            ? 'bg-red-500/15 text-red-600 dark:text-red-400'
-            : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-        )}>
+        <span
+          className={cn(
+            'text-[10px] rounded px-1 py-0.5 font-medium shrink-0',
+            isRejected
+              ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+              : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+          )}
+        >
           {badgeText}
         </span>
       </>
@@ -878,9 +882,7 @@ export const ToolCard = memo(function ToolCard({
       : toolUse.input
 
   const hasPlanInput =
-    isExitPlanMode &&
-    typeof effectiveInput?.plan === 'string' &&
-    effectiveInput.plan.length > 0
+    isExitPlanMode && typeof effectiveInput?.plan === 'string' && effectiveInput.plan.length > 0
   const hasDetail = hasOutput || hasPlanInput
 
   const Renderer = useMemo(() => getToolRenderer(toolUse.name), [toolUse.name])
@@ -970,9 +972,7 @@ export const ToolCard = memo(function ToolCard({
               compact
                 ? 'my-0 rounded-md border border-l-2 text-xs'
                 : 'my-1 rounded-md border border-l-2 text-xs',
-              planRejected
-                ? 'border-red-500/30 bg-red-500/5'
-                : 'border-border bg-primary/[0.04]'
+              planRejected ? 'border-red-500/30 bg-red-500/5' : 'border-border bg-primary/[0.04]'
             )}
             style={{ borderLeftColor: getLeftBorderColor(toolUse.status) }}
             data-testid="tool-card"

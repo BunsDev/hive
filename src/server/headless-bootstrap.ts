@@ -109,9 +109,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
     port,
     bindAddress: bind,
     insecure: config.insecure,
-    ...(config.insecure
-      ? {}
-      : { tlsCert: config.tls.certPath, tlsKey: config.tls.keyPath }),
+    ...(config.insecure ? {} : { tlsCert: config.tls.certPath, tlsKey: config.tls.keyPath }),
     context: { db, sdkManager, eventBus },
     getKeyHash: () => db.getSetting('headless_api_key_hash') || '',
     bruteForce

@@ -18,13 +18,27 @@ function formatResetTime(isoString: string, type: 'five_hour' | 'seven_day'): st
   const minutes = date.getMinutes()
   const ampm = hours >= 12 ? 'pm' : 'am'
   const hour12 = hours % 12 || 12
-  const timeStr = minutes === 0 ? `${hour12}${ampm}` : `${hour12}:${String(minutes).padStart(2, '0')}${ampm}`
+  const timeStr =
+    minutes === 0 ? `${hour12}${ampm}` : `${hour12}:${String(minutes).padStart(2, '0')}${ampm}`
 
   if (type === 'five_hour') {
     return timeStr
   }
 
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec'
+  ]
   const month = months[date.getMonth()]
   const day = date.getDate()
   return `${month} ${day}, ${timeStr}`
@@ -75,17 +89,12 @@ export function UsageIndicator(): React.JSX.Element | null {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="border-t px-3 py-1.5 space-y-0.5 cursor-default" data-testid="usage-indicator">
-            <UsageRow
-              label="5h"
-              percent={fiveHourPercent}
-              resetTime={fiveHourReset}
-            />
-            <UsageRow
-              label="7d"
-              percent={sevenDayPercent}
-              resetTime={sevenDayReset}
-            />
+          <div
+            className="border-t px-3 py-1.5 space-y-0.5 cursor-default"
+            data-testid="usage-indicator"
+          >
+            <UsageRow label="5h" percent={fiveHourPercent} resetTime={fiveHourReset} />
+            <UsageRow label="7d" percent={sevenDayPercent} resetTime={sevenDayReset} />
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={8}>
@@ -99,8 +108,8 @@ export function UsageIndicator(): React.JSX.Element | null {
             </div>
             {extra?.is_enabled && (
               <div className="border-t border-background/20 pt-1 text-[10px]">
-                Extra: ${extra.used_credits.toFixed(2)} / ${extra.monthly_limit.toFixed(2)} used
-                ({Math.round(extra.utilization)}%)
+                Extra: ${extra.used_credits.toFixed(2)} / ${extra.monthly_limit.toFixed(2)} used (
+                {Math.round(extra.utilization)}%)
               </div>
             )}
           </div>

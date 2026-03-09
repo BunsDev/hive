@@ -391,9 +391,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     return null
   })
   const sessionAgentSdk = sessionRecord?.agent_sdk ?? 'opencode'
-  const globalModel = useSettingsStore((state) =>
-    resolveModelForSdk(sessionAgentSdk, state)
-  )
+  const globalModel = useSettingsStore((state) => resolveModelForSdk(sessionAgentSdk, state))
   const effectiveModel: SelectedModel | null =
     sessionRecord?.model_provider_id && sessionRecord.model_id
       ? {
@@ -520,12 +518,18 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     let session: typeof sessionRecord = null
     for (const sessions of state.sessionsByWorktree.values()) {
       const found = sessions.find((s) => s.id === sessionId)
-      if (found) { session = found; break }
+      if (found) {
+        session = found
+        break
+      }
     }
     if (!session) {
       for (const sessions of state.sessionsByConnection.values()) {
         const found = sessions.find((s) => s.id === sessionId)
-        if (found) { session = found; break }
+        if (found) {
+          session = found
+          break
+        }
       }
     }
 
@@ -4079,14 +4083,16 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                       : 'text-muted-foreground'
                   )}
                 >
-                  {elapsedTimerText
-                    ?? (pendingPlan
+                  {elapsedTimerText ??
+                    (pendingPlan
                       ? 'Enter to send feedback to revise the plan'
                       : `${navigator.platform.includes('Mac') ? '⌃' : 'Ctrl+'}T to change variant, Shift+Enter for new line`)}
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
-                {isStreaming && <IndeterminateProgressBar mode={mode} isAsking={!!activeQuestion} />}
+                {isStreaming && (
+                  <IndeterminateProgressBar mode={mode} isAsking={!!activeQuestion} />
+                )}
                 {isStreaming && !inputValue.trim() ? (
                   <Button
                     onClick={handleAbort}

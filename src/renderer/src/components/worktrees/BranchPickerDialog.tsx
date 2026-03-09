@@ -241,9 +241,7 @@ export function BranchPickerDialog({
             {prsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-sm text-muted-foreground">
-                  Loading pull requests...
-                </span>
+                <span className="ml-2 text-sm text-muted-foreground">Loading pull requests...</span>
               </div>
             ) : prsError ? (
               <div className="px-4 py-8 text-center text-sm text-destructive">{prsError}</div>
@@ -265,9 +263,7 @@ export function BranchPickerDialog({
                   >
                     <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="flex-1 min-w-0">
-                      <span className="font-medium text-muted-foreground mr-1.5">
-                        #{pr.number}
-                      </span>
+                      <span className="font-medium text-muted-foreground mr-1.5">#{pr.number}</span>
                       <span className="truncate">{pr.title}</span>
                     </span>
                     <span className="text-[10px] text-muted-foreground shrink-0 max-w-[120px] truncate">

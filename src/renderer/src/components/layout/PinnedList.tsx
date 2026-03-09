@@ -61,9 +61,7 @@ import { ArchiveConfirmDialog } from '@/components/worktrees/ArchiveConfirmDialo
 import { AddAttachmentDialog } from '@/components/worktrees/AddAttachmentDialog'
 import { ManageConnectionWorktreesDialog } from '@/components/connections/ManageConnectionWorktreesDialog'
 
-type PinnedItem =
-  | { kind: 'worktree'; id: string }
-  | { kind: 'connection'; id: string }
+type PinnedItem = { kind: 'worktree'; id: string } | { kind: 'connection'; id: string }
 
 export function PinnedList(): React.JSX.Element | null {
   const pinnedWorktreeIds = usePinnedStore((s) => s.pinnedWorktreeIds)
@@ -534,9 +532,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
         >
           <LanguageIcon language={project.language} customIcon={project.custom_icon} />
 
-          {isRunProcessAlive && (
-            <PulseAnimation className="h-3.5 w-3.5 text-green-500 shrink-0" />
-          )}
+          {isRunProcessAlive && <PulseAnimation className="h-3.5 w-3.5 text-green-500 shrink-0" />}
           {(worktreeStatus === 'working' || worktreeStatus === 'planning') && (
             <Loader2 className="h-3.5 w-3.5 text-primary shrink-0 animate-spin" />
           )}
@@ -577,7 +573,10 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
                     // Always refocus during the first 500ms (menu closing period)
                     // User can press Escape to cancel if needed
                     setTimeout(() => {
-                      if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+                      if (
+                        renameInputRef.current &&
+                        document.activeElement !== renameInputRef.current
+                      ) {
                         renameInputRef.current.focus()
                         renameInputRef.current.select()
                       }
@@ -606,10 +605,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
             )}
             <div className="flex items-center pr-1">
               <ModelIcon worktreeId={worktreeId} className="h-2.5 w-2.5 mr-1 shrink-0" />
-              <span
-                className={cn('text-[11px]', statusClass)}
-                data-testid="pinned-status-text"
-              >
+              <span className={cn('text-[11px]', statusClass)} data-testid="pinned-status-text">
                 {displayStatus}
               </span>
               <span className="flex-1" />
@@ -702,9 +698,7 @@ function PinnedConnectionItem({
   const connectionStatus = useWorktreeStatusStore((s) => s.getConnectionStatus(connectionId))
   const isSelected = selectedConnectionId === connectionId
 
-  const connection = useConnectionStore((s) =>
-    s.connections.find((c) => c.id === connectionId)
-  )
+  const connection = useConnectionStore((s) => s.connections.find((c) => c.id === connectionId))
 
   // Inline rename state
   const [isRenaming, setIsRenaming] = useState(false)
@@ -822,12 +816,9 @@ function PinnedConnectionItem({
   if (!connection) return null
 
   // Build the project names string from unique project names
-  const projectNames =
-    [
-      ...new Set(
-        connection.members?.map((m: { project_name: string }) => m.project_name) || []
-      )
-    ].join(' + ')
+  const projectNames = [
+    ...new Set(connection.members?.map((m: { project_name: string }) => m.project_name) || [])
+  ].join(' + ')
 
   // Display logic: custom name takes priority over project names
   const hasCustomName = !!connection.custom_name
@@ -952,7 +943,10 @@ function PinnedConnectionItem({
                     // Always refocus during the first 500ms (menu closing period)
                     // User can press Escape to cancel if needed
                     setTimeout(() => {
-                      if (renameInputRef.current && document.activeElement !== renameInputRef.current) {
+                      if (
+                        renameInputRef.current &&
+                        document.activeElement !== renameInputRef.current
+                      ) {
                         renameInputRef.current.focus()
                         renameInputRef.current.select()
                       }
@@ -979,16 +973,10 @@ function PinnedConnectionItem({
                 <span className="text-sm truncate block" title={displayName}>
                   {displayName}
                 </span>
-                <span
-                  className={cn('text-[11px]', statusClass)}
-                  data-testid="pinned-status-text"
-                >
+                <span className={cn('text-[11px]', statusClass)} data-testid="pinned-status-text">
                   {displayStatus}
                   {hasCustomName && projectNames && (
-                    <span className="text-muted-foreground font-normal">
-                      {' '}
-                      · {projectNames}
-                    </span>
+                    <span className="text-muted-foreground font-normal"> · {projectNames}</span>
                   )}
                 </span>
               </>

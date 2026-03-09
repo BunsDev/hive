@@ -76,7 +76,7 @@ const watchers = new Map<string, chokidar.FSWatcher>()
 const debounceTimers = new Map<string, NodeJS.Timeout>()
 
 // Pending events accumulated during the debounce window, keyed by worktree path
-const pendingEvents = new Map<string, Array<{ eventType: FileEventType, changedPath: string }>>()
+const pendingEvents = new Map<string, Array<{ eventType: FileEventType; changedPath: string }>>()
 
 // Main window reference for sending events
 let mainWindow: BrowserWindow | null = null
@@ -279,8 +279,8 @@ function isUnlinkLike(eventType: FileEventType): boolean {
  *  - multiple change      → keep only one change
  */
 function deduplicateEvents(
-  events: Array<{ eventType: FileEventType, changedPath: string }>
-): Array<{ eventType: FileEventType, changedPath: string }> {
+  events: Array<{ eventType: FileEventType; changedPath: string }>
+): Array<{ eventType: FileEventType; changedPath: string }> {
   // Walk the list in order and collapse per-path
   const byPath = new Map<string, FileEventType>() // changedPath → final eventType
   const order: string[] = [] // insertion-order of first appearance
@@ -317,7 +317,7 @@ function deduplicateEvents(
   }
 
   // Rebuild in original insertion order, skipping deleted entries
-  const result: Array<{ eventType: FileEventType, changedPath: string }> = []
+  const result: Array<{ eventType: FileEventType; changedPath: string }> = []
   for (const changedPath of order) {
     const eventType = byPath.get(changedPath)
     if (eventType !== undefined) {
@@ -334,7 +334,11 @@ function deduplicateEvents(
  * The IPC payload carries `events: Array<{ eventType, changedPath, relativePath }>`.
  * The EventBus still emits one event per accumulated item for backward compat.
  */
-function emitFileTreeChange(worktreePath: string, eventType: FileEventType, changedPath: string): void {
+function emitFileTreeChange(
+  worktreePath: string,
+  eventType: FileEventType,
+  changedPath: string
+): void {
   if (!mainWindow) return
 
   // Accumulate the event
@@ -375,7 +379,9 @@ function emitFileTreeChange(worktreePath: string, eventType: FileEventType, chan
       for (const evt of events) {
         bus.emit('file-tree:change', { worktreePath, ...evt })
       }
-    } catch { /* EventBus not available */ }
+    } catch {
+      /* EventBus not available */
+    }
   }, 100)
 
   debounceTimers.set(worktreePath, timer)

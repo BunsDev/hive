@@ -25,7 +25,10 @@ interface BottomPanelProps {
   isConnectionMode?: boolean
 }
 
-export function BottomPanel({ terminalSlot, isConnectionMode }: BottomPanelProps): React.JSX.Element {
+export function BottomPanel({
+  terminalSlot,
+  isConnectionMode
+}: BottomPanelProps): React.JSX.Element {
   const activeTab = useLayoutStore((s) => s.bottomPanelTab)
   const effectiveTab = isConnectionMode ? 'terminal' : activeTab
   useGhosttyPromotion(effectiveTab === 'terminal')

@@ -1,5 +1,15 @@
 import { useEffect } from 'react'
-import { Settings, Palette, Monitor, Code, Terminal, Keyboard, Download, Shield, Eye } from 'lucide-react'
+import {
+  Settings,
+  Palette,
+  Monitor,
+  Code,
+  Terminal,
+  Keyboard,
+  Download,
+  Shield,
+  Eye
+} from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useGhosttySuppression } from '@/hooks'

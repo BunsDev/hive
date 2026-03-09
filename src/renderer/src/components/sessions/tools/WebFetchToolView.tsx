@@ -39,9 +39,7 @@ export function WebFetchToolView({ input, output, error }: ToolViewProps): React
       )}
 
       {/* Output */}
-      {output && !error && (
-        <div className="border-t border-border mx-3" />
-      )}
+      {output && !error && <div className="border-t border-border mx-3" />}
       {output && !error && (
         <pre className="px-3 py-2 text-muted-foreground font-mono whitespace-pre-wrap break-words max-h-[300px] overflow-y-auto">
           {output}

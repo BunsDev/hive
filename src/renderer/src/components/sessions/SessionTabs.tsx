@@ -872,10 +872,12 @@ export function SessionTabs(): React.JSX.Element | null {
     >
       {/* New session button - on the left */}
       {/* Right-click shows provider menu with session type options */}
-      <ContextMenu onOpenChange={(open) => {
+      <ContextMenu
+        onOpenChange={(open) => {
           if (open) pushGhosttySuppression('session-tabs-context')
           else popGhosttySuppression('session-tabs-context')
-        }}>
+        }}
+      >
         <ContextMenuTrigger asChild>
           <button
             onClick={handleCreateSession}

@@ -70,8 +70,7 @@ const db = {
     addAttachment: (
       worktreeId: string,
       attachment: { type: 'jira' | 'figma'; url: string; label: string }
-    ) =>
-      ipcRenderer.invoke('db:worktree:addAttachment', { worktreeId, attachment }),
+    ) => ipcRenderer.invoke('db:worktree:addAttachment', { worktreeId, attachment }),
     removeAttachment: (worktreeId: string, attachmentId: string) =>
       ipcRenderer.invoke('db:worktree:removeAttachment', { worktreeId, attachmentId }),
     setPinned: (worktreeId: string, pinned: boolean) =>
@@ -1487,7 +1486,8 @@ const terminalOps = {
 }
 
 const updaterOps = {
-  checkForUpdate: (): Promise<void> => ipcRenderer.invoke('updater:check'),
+  checkForUpdate: (options?: { manual?: boolean }): Promise<void> =>
+    ipcRenderer.invoke('updater:check', options),
   downloadUpdate: (): Promise<void> => ipcRenderer.invoke('updater:download'),
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updater:install'),
   setChannel: (channel: string): Promise<void> => ipcRenderer.invoke('updater:setChannel', channel),
@@ -1504,11 +1504,21 @@ const updaterOps = {
   },
 
   onUpdateAvailable: (
-    callback: (data: { version: string; releaseNotes?: string; releaseDate?: string }) => void
+    callback: (data: {
+      version: string
+      releaseNotes?: string
+      releaseDate?: string
+      isManualCheck?: boolean
+    }) => void
   ): (() => void) => {
     const handler = (
       _e: Electron.IpcRendererEvent,
-      data: { version: string; releaseNotes?: string; releaseDate?: string }
+      data: {
+        version: string
+        releaseNotes?: string
+        releaseDate?: string
+        isManualCheck?: boolean
+      }
     ): void => {
       callback(data)
     }
@@ -1518,8 +1528,13 @@ const updaterOps = {
     }
   },
 
-  onUpdateNotAvailable: (callback: (data: { version: string }) => void): (() => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { version: string }): void => {
+  onUpdateNotAvailable: (
+    callback: (data: { version: string; isManualCheck?: boolean }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      data: { version: string; isManualCheck?: boolean }
+    ): void => {
       callback(data)
     }
     ipcRenderer.on('updater:not-available', handler)
@@ -1563,8 +1578,13 @@ const updaterOps = {
     }
   },
 
-  onError: (callback: (data: { message: string }) => void): (() => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { message: string }): void => {
+  onError: (
+    callback: (data: { message: string; isManualCheck?: boolean }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      data: { message: string; isManualCheck?: boolean }
+    ): void => {
       callback(data)
     }
     ipcRenderer.on('updater:error', handler)
@@ -1604,10 +1624,8 @@ const usageOps = {
 const analyticsOps = {
   track: (event: string, properties?: Record<string, unknown>) =>
     ipcRenderer.invoke('telemetry:track', event, properties),
-  setEnabled: (enabled: boolean) =>
-    ipcRenderer.invoke('telemetry:setEnabled', enabled),
-  isEnabled: () =>
-    ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
+  setEnabled: (enabled: boolean) => ipcRenderer.invoke('telemetry:setEnabled', enabled),
+  isEnabled: () => ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
