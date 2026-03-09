@@ -123,7 +123,7 @@ Open a worktree → Click **"New Session"** → Start coding with OpenCode or Cl
 
 > 💡 **Pro tip**: Press `Cmd+K` anytime to open the command palette and navigate quickly!
 
-📺 [Watch the demo](#) | 📖 [Read the full guide](docs/GUIDE.md) | ⌨️ [Keyboard shortcuts](docs/SHORTCUTS.md)
+📖 [Read the full guide](docs/GUIDE.md) | ⌨️ [Keyboard shortcuts](docs/SHORTCUTS.md)
 
 ## 🔌 Worktree Connections - The Game Changer
 
@@ -220,9 +220,7 @@ Connect any two worktrees to:
 
 - [User Guide](docs/GUIDE.md) — Getting started and tutorials
 - [FAQ](docs/FAQ.md) — Common questions and troubleshooting
-- [Architecture](docs/ARCHITECTURE.md) — Technical deep dive
-- [API Reference](docs/API.md) — Programmatic usage
-- [Changelog](CHANGELOG.md) — Version history and releases
+- [Keyboard Shortcuts](docs/SHORTCUTS.md) — Complete shortcuts reference
 
 ## Roadmap
 

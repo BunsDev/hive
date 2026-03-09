@@ -37,7 +37,7 @@ These shortcuts work anywhere in the application:
 | `Cmd+O` | Add Project | Open project picker dialog |
 | `Cmd+Shift+O` | Quick Open Project | Quick project switcher |
 | `Cmd+P` | Quick File Search | Search files in current worktree |
-| `Cmd+Shift+P` | Global File Search | Search files across all worktrees |
+| `Cmd+Option+P` | Global File Search | Search files across all worktrees |
 | `Cmd+R` | Refresh | Refresh current view |
 | `Cmd+Shift+R` | Refresh All | Refresh all projects and worktrees |
 
@@ -46,9 +46,9 @@ These shortcuts work anywhere in the application:
 | Shortcut | Action | Description |
 |----------|--------|-------------|
 | `Cmd+N` | New Worktree | Create new worktree for current project |
-| `Cmd+Shift+N` | New Worktree with Branch | Create worktree with new branch |
-| `Cmd+D` | Archive Worktree | Archive current worktree |
-| `Cmd+Shift+D` | Delete Worktree | Permanently delete worktree |
+| `Cmd+Option+N` | New Worktree with Branch | Create worktree with new branch |
+| `Cmd+Option+A` | Archive Worktree | Archive current worktree |
+| `Cmd+Option+Delete` | Delete Worktree | Permanently delete worktree |
 | `Cmd+E` | Open in Editor | Open worktree in external editor |
 | `Cmd+T` | Toggle Terminal | Show/hide terminal for worktree |
 | `Cmd+Shift+T` | New Terminal | Open new terminal tab |
@@ -92,7 +92,7 @@ These shortcuts work anywhere in the application:
 | `Cmd+F` | Find | Find in current file |
 | `Cmd+Shift+F` | Find in Files | Find across all files |
 | `Cmd+G` | Find Next | Go to next search result |
-| `Cmd+Shift+G` | Find Previous | Go to previous search result |
+| `Shift+Cmd+G` | Find Previous | Go to previous search result |
 | `Cmd+Option+F` | Replace | Find and replace |
 
 ## Editor Shortcuts
@@ -110,8 +110,8 @@ These shortcuts work anywhere in the application:
 | `Cmd+Shift+K` | Delete Line | Delete current line |
 | `Cmd+Option+Up` | Add Cursor Above | Add cursor above |
 | `Cmd+Option+Down` | Add Cursor Below | Add cursor below |
-| `Cmd+D` | Select Next Match | Select next occurrence |
-| `Cmd+Shift+L` | Select All Matches | Select all occurrences |
+| `Cmd+D` | Select Next Match | Select next occurrence (editor only) |
+| `Cmd+Shift+D` | Select All Matches | Select all occurrences |
 | `F12` | Go to Definition | Jump to definition |
 | `Option+F12` | Peek Definition | Preview definition inline |
 | `Shift+F12` | Find References | Find all references |
@@ -127,8 +127,8 @@ These shortcuts work anywhere in the application:
 | `Cmd+Option+S` | Stage File | Stage current file |
 | `Cmd+Shift+U` | Unstage All | Unstage all changes |
 | `Cmd+Option+U` | Unstage File | Unstage current file |
-| `Cmd+Shift+P` | Push | Push to remote |
-| `Cmd+Shift+L` | Pull | Pull from remote |
+| `Cmd+K P` | Push | Push to remote (Cmd+K then P) |
+| `Cmd+K L` | Pull | Pull from remote (Cmd+K then L) |
 | `Cmd+Option+D` | Discard Changes | Discard file changes |
 | `Cmd+Option+H` | View History | Show git history |
 
@@ -140,7 +140,7 @@ These shortcuts work anywhere in the application:
 | `Cmd+Shift+B` | Toggle File Tree | Show/hide file tree |
 | `Cmd+J` | Toggle Panel | Show/hide bottom panel |
 | `Cmd+Shift+E` | Focus Explorer | Focus file explorer |
-| `Cmd+Shift+G` | Focus Git | Focus git panel |
+| `Cmd+K G` | Focus Git | Focus git panel (Cmd+K then G) |
 | `Cmd+Shift+X` | Focus Extensions | Focus extensions panel |
 | `Cmd+\` | Split Editor | Split editor vertically |
 | `Cmd+Shift+\` | Split Editor Horizontal | Split editor horizontally |
@@ -176,7 +176,7 @@ These shortcuts work anywhere in the application:
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Cmd+Shift+N` | New Window | Open new Hive window |
+| `Cmd+Shift+Option+N` | New Window | Open new Hive window |
 | `Cmd+Shift+W` | Close Window | Close current window |
 | `Cmd+` ` | Cycle Windows | Cycle through Hive windows |
 | `Cmd+Option+M` | Minimize All | Minimize all windows |

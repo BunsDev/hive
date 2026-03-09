@@ -281,15 +281,15 @@ To disconnect worktrees:
 ### Tips and Tricks
 
 #### Quick Connection Workflow
-1. Press `Cmd+Shift+C` to open connection dialog
+1. Press `Cmd+K` then `C` to open connection dialog
 2. Type partial worktree name
 3. Press Enter to connect
-4. Use `Cmd+Shift+W` to switch
+4. Use `Cmd+Option+W` to switch
 
 #### Connection Shortcuts
-- `Cmd+Shift+C` - Connect worktrees
-- `Cmd+Shift+W` - Switch between connected
-- `Cmd+Shift+D` - Disconnect
+- `Cmd+K C` - Connect worktrees (Cmd+K then C)
+- `Cmd+Option+W` - Switch between connected
+- `Cmd+K D` - Disconnect (Cmd+K then D)
 - `Cmd+Option+D` - Diff with connected
 
 #### Visual Indicators

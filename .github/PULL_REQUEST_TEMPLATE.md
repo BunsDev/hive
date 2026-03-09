@@ -62,7 +62,7 @@ Fixes #(issue number)
 - [ ] I have added comments to complex code sections
 - [ ] I have checked for any console errors
 - [ ] I have tested on macOS (required)
-- [ ] I have updated CHANGELOG.md (for significant changes)
+- [ ] I have updated documentation (for significant changes)
 
 ## Performance Impact
 <!-- Describe any performance implications of your changes -->
