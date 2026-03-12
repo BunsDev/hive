@@ -252,7 +252,11 @@ export class CommandFilterService {
    * Check if a command matches any pattern in a list
    */
   matchesAnyPattern(command: string, patterns: string[]): boolean {
-    return patterns.some((pattern) => this.matchPattern(command, pattern))
+    // Normalize newlines to spaces for pattern matching
+    // This allows patterns like "bash: git commit *" to match heredoc commands
+    // while splitBashChain still splits on unquoted newlines for security
+    const normalizedCommand = command.replace(/\n/g, ' ')
+    return patterns.some((pattern) => this.matchPattern(normalizedCommand, pattern))
   }
 
   /**
