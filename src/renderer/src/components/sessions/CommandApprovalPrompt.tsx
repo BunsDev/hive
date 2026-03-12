@@ -243,6 +243,14 @@ function splitBashForDisplay(
 
     // Only split when not inside quotes or command substitutions
     if (!inSingleQuote && !inDoubleQuote && parenStack.length === 0) {
+      // Check for newline (command separator)
+      if (char === '\n') {
+        if (current.trim()) parts.push({ cmd: current.trim(), separator: 'newline' })
+        current = ''
+        i++
+        continue
+      }
+
       if (char === '&' && next === '&') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: '&&' })
         current = ''

@@ -95,8 +95,17 @@ export class CommandFilterService {
         continue
       }
 
-      // Only split on operators when not inside quotes AND not inside command substitution
+      // Only split on operators and newlines when not inside quotes AND not inside command substitution
       if (!inSingleQuote && !inDoubleQuote && parenStack.length === 0) {
+        // Check for newline (command separator) - prevents newline injection attacks
+        // Heredocs are protected because their newlines are inside quotes/substitutions
+        if (char === '\n') {
+          if (current.trim()) parts.push(current.trim())
+          current = ''
+          i++
+          continue
+        }
+
         // Check for &&
         if (char === '&' && next === '&') {
           if (current.trim()) parts.push(current.trim())
@@ -278,8 +287,9 @@ export class CommandFilterService {
         // Convert ** back to regex (matches any sequence)
         .replace(/__DOUBLESTAR__/g, '.*')
 
-      // Use 's' flag so . matches newlines (for commands with heredocs)
-      const regex = new RegExp(`^${regexPattern}$`, 'is')
+      // Use case-insensitive matching
+      // Note: Do NOT use 's' flag - we split on newlines to prevent injection attacks
+      const regex = new RegExp(`^${regexPattern}$`, 'i')
       const matches = regex.test(command)
 
       // Only log successful matches to reduce noise
