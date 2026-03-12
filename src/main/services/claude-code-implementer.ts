@@ -498,6 +498,29 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         modelDef?.defaultVariant ??
         'high') as Options['effort']
 
+      // If worktree has Docker sandbox enabled, use the sandbox wrapper binary
+      let effectiveBinaryPath = this.claudeBinaryPath
+      if (this.dbService) {
+        try {
+          const worktree = this.dbService.getWorktreeBySessionId(session.hiveSessionId)
+          if (worktree?.docker_sandbox) {
+            const { ensureSandboxWrapper } = await import('./docker-sandbox-service')
+            const sandboxName = `hive-${worktree.branch_name}`
+            const project = this.dbService.getProject(worktree.project_id)
+            effectiveBinaryPath = ensureSandboxWrapper({
+              sandboxName,
+              worktreePath: session.worktreePath,
+              projectGitPath: project ? `${project.path}/.git` : `${session.worktreePath}/.git`
+            })
+            log.info('Using Docker sandbox wrapper', { sandboxName, effectiveBinaryPath })
+          }
+        } catch (err) {
+          log.warn('Failed to set up Docker sandbox wrapper, using default binary', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
+
       // Build SDK query options
       const options: Options = {
         cwd: session.worktreePath,
@@ -516,7 +539,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1'
         },
         canUseTool: this.createCanUseToolCallback(session),
-        ...(this.claudeBinaryPath ? { pathToClaudeCodeExecutable: this.claudeBinaryPath } : {})
+        ...(effectiveBinaryPath ? { pathToClaudeCodeExecutable: effectiveBinaryPath } : {})
       }
 
       // Attach LSP MCP server so Claude can query language servers (best-effort)
