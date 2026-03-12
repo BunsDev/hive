@@ -505,7 +505,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           const worktree = this.dbService.getWorktreeBySessionId(session.hiveSessionId)
           if (worktree?.docker_sandbox) {
             const { ensureSandboxWrapper } = await import('./docker-sandbox-service')
-            const sandboxName = `hive-${worktree.branch_name}`
+            const safeBranch = worktree.branch_name.replace(/[^a-zA-Z0-9_.-]/g, '-')
+            const sandboxName = `hive-${safeBranch}`
             const project = this.dbService.getProject(worktree.project_id)
             effectiveBinaryPath = ensureSandboxWrapper({
               sandboxName,
