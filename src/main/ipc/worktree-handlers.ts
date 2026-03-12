@@ -264,4 +264,89 @@ export function registerWorktreeHandlers(): void {
       }
     }
   )
+
+  // Toggle Docker sandbox for a worktree
+  ipcMain.handle(
+    'worktree:toggleDockerSandbox',
+    async (_event, worktreeId: string, enabled: boolean) => {
+      try {
+        const db = getDatabase()
+        db.updateWorktreeDockerSandbox(worktreeId, enabled)
+
+        // If disabling, clean up the sandbox and wrapper script
+        if (!enabled) {
+          const worktree = db.getWorktree(worktreeId)
+          if (worktree) {
+            const { stopAndRemoveSandbox, removeSandboxWrapper } = await import(
+              '../services/docker-sandbox-service'
+            )
+            const safeBranch = worktree.branch_name.replace(/[^a-zA-Z0-9_.-]/g, '-')
+            const sandboxName = `hive-${safeBranch}`
+            stopAndRemoveSandbox(sandboxName)
+            removeSandboxWrapper(sandboxName)
+          }
+        }
+
+        return { success: true }
+      } catch (error) {
+        log.error('Failed to toggle Docker sandbox', {
+          worktreeId,
+          enabled,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    }
+  )
+
+  // Detect Docker sandbox availability
+  ipcMain.handle('worktree:detectDockerSandbox', async () => {
+    try {
+      const { detectDockerSandbox } = await import('../services/docker-sandbox-service')
+      return detectDockerSandbox()
+    } catch (error) {
+      log.error('Failed to detect Docker sandbox', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return { dockerAvailable: false, sandboxAvailable: false }
+    }
+  })
+
+  // List all running Docker sandboxes
+  ipcMain.handle('worktree:listSandboxes', async () => {
+    try {
+      const { listSandboxes } = await import('../services/docker-sandbox-service')
+      return { success: true, sandboxes: listSandboxes() }
+    } catch (error) {
+      log.error('Failed to list Docker sandboxes', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return {
+        success: false,
+        sandboxes: [],
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // Stop and remove a Docker sandbox
+  ipcMain.handle('worktree:stopSandbox', async (_event, name: string) => {
+    try {
+      const { stopAndRemoveSandbox } = await import('../services/docker-sandbox-service')
+      stopAndRemoveSandbox(name)
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to stop Docker sandbox', {
+        name,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
 }
