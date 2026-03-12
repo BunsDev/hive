@@ -89,7 +89,8 @@ export class DatabaseService {
       last_model_variant: (row.last_model_variant as string) ?? null,
       attachments: (row.attachments as string) ?? '[]',
       pinned: (row.pinned as number) ?? 0,
-      context: (row.context as string) ?? null
+      context: (row.context as string) ?? null,
+      docker_sandbox: (row.docker_sandbox as number) ?? 0
     } as Worktree
   }
 
@@ -187,6 +188,7 @@ export class DatabaseService {
     this.safeAddColumn('worktrees', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
     this.safeAddColumn('worktrees', 'context', 'TEXT DEFAULT NULL')
     this.safeAddColumn('connections', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
+    this.safeAddColumn('worktrees', 'docker_sandbox', 'INTEGER NOT NULL DEFAULT 0')
 
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_connection ON sessions(connection_id);
@@ -583,6 +585,12 @@ export class DatabaseService {
   updateWorktreeContext(worktreeId: string, context: string | null): void {
     const db = this.getDb()
     db.prepare('UPDATE worktrees SET context = ? WHERE id = ?').run(context, worktreeId)
+  }
+
+  updateWorktreeDockerSandbox(worktreeId: string, enabled: boolean): void {
+    const db = this.getDb()
+    db.prepare('UPDATE worktrees SET docker_sandbox = ? WHERE id = ?')
+      .run(enabled ? 1 : 0, worktreeId)
   }
 
   /**
