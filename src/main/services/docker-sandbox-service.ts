@@ -6,6 +6,14 @@ import { createLogger } from './logger'
 
 const log = createLogger({ component: 'DockerSandboxService' })
 
+function validateSandboxName(name: string): void {
+  if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
+    throw new Error(
+      `Invalid sandbox name: "${name}" — only alphanumeric, hyphens, underscores, and dots allowed`
+    )
+  }
+}
+
 export type SandboxAgent = 'claude' | 'codex' | 'copilot' | 'gemini' | 'opencode' | 'shell'
 
 /**
@@ -59,6 +67,7 @@ export interface SandboxWrapperOptions {
  */
 export function ensureSandboxWrapper(options: SandboxWrapperOptions): string {
   const { sandboxName, worktreePath, projectGitPath, agent = 'claude' } = options
+  validateSandboxName(sandboxName)
   const sandboxDir = join(homedir(), '.hive', 'sandbox')
 
   mkdirSync(sandboxDir, { recursive: true })
@@ -66,7 +75,7 @@ export function ensureSandboxWrapper(options: SandboxWrapperOptions): string {
   const scriptPath = join(sandboxDir, `${sandboxName}.sh`)
   const scriptContent = [
     '#!/bin/bash',
-    `exec docker sandbox run --name ${sandboxName} ${agent} ${worktreePath} ${projectGitPath}:ro -- "$@"`
+    `exec docker sandbox run --name "${sandboxName}" "${agent}" "${worktreePath}" "${projectGitPath}:ro" -- "$@"`
   ].join('\n') + '\n'
 
   writeFileSync(scriptPath, scriptContent)
@@ -81,6 +90,7 @@ export function ensureSandboxWrapper(options: SandboxWrapperOptions): string {
  * Best-effort: errors are logged but not thrown.
  */
 export function removeSandboxWrapper(sandboxName: string): void {
+  validateSandboxName(sandboxName)
   const scriptPath = join(homedir(), '.hive', 'sandbox', `${sandboxName}.sh`)
 
   try {
@@ -101,6 +111,7 @@ export function removeSandboxWrapper(sandboxName: string): void {
  * Best-effort: errors on each step are logged but not thrown.
  */
 export function stopAndRemoveSandbox(sandboxName: string): void {
+  validateSandboxName(sandboxName)
   try {
     execFileSync('docker', ['sandbox', 'stop', sandboxName], {
       encoding: 'utf-8',
