@@ -541,27 +541,9 @@ export class CodexImplementer implements AgentSdkImplementer {
         }
       }
 
-      // DEBUG: plan detection diagnostics
-      log.info('[DEBUG:PLAN] Post-turn plan detection', {
-        interactionMode,
-        pendingPlanTextLength: pendingPlanText?.length ?? 0,
-        hasPendingPlanText: !!pendingPlanText,
-        pendingPlanTextFirst300: pendingPlanText?.slice(0, 300) ?? '',
-        sessionMessagesCount: session.messages.length,
-        hiveSessionId: session.hiveSessionId,
-        threadId: session.threadId
-      })
-
       if (interactionMode === 'plan' && pendingPlanText) {
         const toolUseID = `codex-exitplan-${session.threadId}-${Date.now()}`
         const requestId = `codex-plan:${session.threadId}`
-        log.info('[DEBUG:PLAN] Emitting plan.ready', {
-          requestId,
-          toolUseID,
-          planTextLength: pendingPlanText.length,
-          planTextFirst200: pendingPlanText.slice(0, 200),
-          hiveSessionId: session.hiveSessionId
-        })
         this.sendToRenderer('opencode:stream', {
           type: 'plan.ready',
           sessionId: session.hiveSessionId,
@@ -571,14 +553,6 @@ export class CodexImplementer implements AgentSdkImplementer {
             plan: pendingPlanText,
             toolUseID
           }
-        })
-      } else {
-        log.info('[DEBUG:PLAN] NOT emitting plan.ready', {
-          interactionMode,
-          hasPendingPlanText: !!pendingPlanText,
-          reason: interactionMode !== 'plan'
-            ? 'interactionMode is not plan'
-            : 'no pendingPlanText detected'
         })
       }
 
@@ -1050,15 +1024,6 @@ export class CodexImplementer implements AgentSdkImplementer {
 
   private sendToRenderer(channel: string, data: unknown): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      const evt = data as Record<string, unknown> | undefined
-      if (evt?.type === 'plan.ready') {
-        log.info('[DEBUG:PLAN] sendToRenderer plan.ready IPC', {
-          channel,
-          sessionId: evt?.sessionId,
-          hasWindow: true,
-          dataKeys: Object.keys(evt ?? {})
-        })
-      }
       this.mainWindow.webContents.send(channel, data)
     } else {
       log.debug('sendToRenderer: no window (headless)')

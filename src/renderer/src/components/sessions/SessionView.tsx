@@ -1602,7 +1602,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             if (part.type === 'text') {
               const delta = event.data?.delta
 
-              // Codex plan mode: route text into ExitPlanMode card
+              // Codex plan mode: route text into ExitPlanMode card.
+              // agent_sdk is immutable per session and always populated by the
+              // time streaming starts (the session must exist to send a prompt).
               const isCodexPlan =
                 sessionRecord?.agent_sdk === 'codex' &&
                 useSessionStore.getState().getSessionMode(sessionId) === 'plan'
