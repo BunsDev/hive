@@ -2008,6 +2008,15 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       input
     )
 
+    // Check if already aborted before showing dialog
+    if (options.signal.aborted) {
+      log.info('handleCommandApproval: signal already aborted, auto-denying', { requestId })
+      return {
+        behavior: 'deny' as const,
+        message: 'Command rejected: session was aborted'
+      }
+    }
+
     const approvalRequest = {
       id: requestId,
       sessionID: session.hiveSessionId,
@@ -2028,15 +2037,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
 
     // Block execution with a Promise that waits for user response
     // Add 5-minute timeout to prevent infinite waiting if dialog fails to show
-
-    // Check if already aborted before setting up promises
-    if (options.signal.aborted) {
-      log.info('handleCommandApproval: signal already aborted, auto-denying', { requestId })
-      return {
-        behavior: 'deny' as const,
-        message: 'Command rejected: session was aborted'
-      }
-    }
 
     let timeoutHandle: NodeJS.Timeout | undefined
     const userResponse = await Promise.race([

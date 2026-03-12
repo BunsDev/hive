@@ -49,6 +49,9 @@ export class CommandFilterService {
     let escapeNext = false
     // Stack to track command substitutions: each entry records whether it was opened inside double quotes
     const parenStack: boolean[] = []
+    // Counter to track bare subshells: (cmd1 && cmd2)
+    // Prevents operators inside subshells from being treated as top-level separators
+    let subshellDepth = 0
     let i = 0
 
     while (i < command.length) {
@@ -108,8 +111,30 @@ export class CommandFilterService {
         continue
       }
 
-      // Only split on operators and newlines when not inside quotes AND not inside command substitution
-      if (!inSingleQuote && !inDoubleQuote && parenStack.length === 0) {
+      // Track bare subshells: (cmd1 && cmd2) - only when not inside quotes
+      // This prevents operators inside subshells from being treated as top-level separators
+      if (char === '(' && !inSingleQuote && !inDoubleQuote) {
+        // Check if this is a bare ( (not part of $()
+        const prevChar = i > 0 ? command[i - 1] : ''
+        if (prevChar !== '$') {
+          subshellDepth++
+        }
+        current += char
+        i++
+        continue
+      }
+
+      // Track closing ) of bare subshell - only if not closing a command substitution
+      if (char === ')' && subshellDepth > 0 && !inSingleQuote && !inDoubleQuote) {
+        // This ) belongs to a bare subshell (parenStack would have matched if it was $())
+        subshellDepth--
+        current += char
+        i++
+        continue
+      }
+
+      // Only split on operators and newlines when not inside quotes AND not inside command substitution AND not inside subshell
+      if (!inSingleQuote && !inDoubleQuote && parenStack.length === 0 && subshellDepth === 0) {
         // Check for newline (command separator) - prevents newline injection attacks
         // Note: Newlines inside quotes or command substitutions ($(...)) are preserved
         // and NOT split because we're tracking those contexts with inSingleQuote/inDoubleQuote/parenStack.
@@ -463,9 +488,10 @@ export class CommandFilterService {
    * Generate progressive bash command pattern suggestions for a SINGLE command (no &&).
    * Used internally by both generateBashSuggestions and generateSubCommandSuggestions.
    *
-   * For long commands (>5 words), limits to first 4 patterns (exact + 3 wildcard levels)
+   * For long commands (>=5 words), limits to 4 patterns (exact + 3 wildcard levels)
    * starting from the broadest patterns (fewest words before wildcard).
    * e.g. "gh pr create --title ... --body ..." → ["exact", "gh *", "gh pr *", "gh pr create *"]
+   * For shorter commands (<5 words), generates all possible wildcard levels.
    */
   private generateSingleCommandSuggestions(commandStr: string): string[] {
     const prefix = 'bash: '
@@ -479,9 +505,10 @@ export class CommandFilterService {
 
     const suggestions: string[] = [commandStr]
 
-    // For long commands, limit to 3 wildcard levels starting from the broadest
+    // For long commands (>=5 words), limit to 3 wildcard levels starting from the broadest
     // e.g. "gh pr create --title ... --body ..." → ["exact", "gh *", "gh pr *", "gh pr create *"]
-    const MAX_WILDCARD_LEVELS = parts.length > 5 ? 3 : parts.length - 1
+    // For shorter commands, generate all possible wildcard levels
+    const MAX_WILDCARD_LEVELS = parts.length >= 5 ? 3 : parts.length - 1
 
     // Generate progressively more specific patterns starting from the broadest
     // For long commands, we want the FIRST few patterns: "gh *", "gh pr *", "gh pr create *"

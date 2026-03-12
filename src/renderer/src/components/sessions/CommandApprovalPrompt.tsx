@@ -185,6 +185,8 @@ function splitBashForDisplay(
   let escapeNext = false
   // Stack to track command substitutions: each entry records whether it was opened inside double quotes
   const parenStack: boolean[] = []
+  // Counter to track bare subshells: (cmd1 && cmd2)
+  let subshellDepth = 0
   let i = 0
 
   while (i < command.length) {
@@ -241,8 +243,27 @@ function splitBashForDisplay(
       continue
     }
 
-    // Only split when not inside quotes or command substitutions
-    if (!inSingleQuote && !inDoubleQuote && parenStack.length === 0) {
+    // Track bare subshells: (cmd1 && cmd2) - only when not inside quotes
+    if (char === '(' && !inSingleQuote && !inDoubleQuote) {
+      const prevChar = i > 0 ? command[i - 1] : ''
+      if (prevChar !== '$') {
+        subshellDepth++
+      }
+      current += char
+      i++
+      continue
+    }
+
+    // Track closing ) of bare subshell
+    if (char === ')' && subshellDepth > 0 && !inSingleQuote && !inDoubleQuote) {
+      subshellDepth--
+      current += char
+      i++
+      continue
+    }
+
+    // Only split when not inside quotes or command substitutions or subshells
+    if (!inSingleQuote && !inDoubleQuote && parenStack.length === 0 && subshellDepth === 0) {
       // Check for newline (command separator)
       if (char === '\n') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: 'newline' })
