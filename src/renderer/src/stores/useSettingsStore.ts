@@ -32,6 +32,8 @@ export interface CommandFilterSettings {
   enabled: boolean
 }
 
+export type SandboxAgent = 'claude' | 'codex' | 'copilot' | 'gemini' | 'opencode' | 'shell'
+
 export interface AppSettings {
   // General
   autoStartSession: boolean
@@ -89,6 +91,10 @@ export interface AppSettings {
   // Command Filter
   commandFilter: CommandFilterSettings
 
+  // Docker Sandbox
+  dockerSandboxAgent: SandboxAgent
+  dockerSandboxMountGitReadOnly: boolean
+
   // Privacy
   telemetryEnabled: boolean
 }
@@ -133,6 +139,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultBehavior: 'ask',
     enabled: false
   },
+  dockerSandboxAgent: 'claude',
+  dockerSandboxMountGitReadOnly: true,
   telemetryEnabled: true
 }
 
@@ -226,6 +234,8 @@ function extractSettings(state: SettingsState): AppSettings {
     skippedUpdateVersion: state.skippedUpdateVersion,
     initialSetupComplete: state.initialSetupComplete,
     commandFilter: state.commandFilter,
+    dockerSandboxAgent: state.dockerSandboxAgent,
+    dockerSandboxMountGitReadOnly: state.dockerSandboxMountGitReadOnly,
     telemetryEnabled: state.telemetryEnabled
   }
 }
@@ -406,6 +416,8 @@ export const useSettingsStore = create<SettingsState>()(
         skippedUpdateVersion: state.skippedUpdateVersion,
         initialSetupComplete: state.initialSetupComplete,
         commandFilter: state.commandFilter,
+        dockerSandboxAgent: state.dockerSandboxAgent,
+        dockerSandboxMountGitReadOnly: state.dockerSandboxMountGitReadOnly,
         telemetryEnabled: state.telemetryEnabled
       })
     }
