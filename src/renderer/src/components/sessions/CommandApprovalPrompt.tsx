@@ -280,6 +280,7 @@ function splitBashForDisplay(
       if (char === '\n') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: 'newline' })
         current = ''
+        lastCharWasUnescapedDollar = false
         i++
         continue
       }
@@ -287,6 +288,7 @@ function splitBashForDisplay(
       if (char === '&' && next === '&') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: '&&' })
         current = ''
+        lastCharWasUnescapedDollar = false
         i += 2
         while (i < command.length && /\s/.test(command[i])) i++
         continue
@@ -295,6 +297,7 @@ function splitBashForDisplay(
       if (char === '|' && next === '|') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: '||' })
         current = ''
+        lastCharWasUnescapedDollar = false
         i += 2
         while (i < command.length && /\s/.test(command[i])) i++
         continue
@@ -303,6 +306,7 @@ function splitBashForDisplay(
       if (char === '|' && next !== '|') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: '|' })
         current = ''
+        lastCharWasUnescapedDollar = false
         i++
         while (i < command.length && /\s/.test(command[i])) i++
         continue
@@ -311,6 +315,7 @@ function splitBashForDisplay(
       if (char === ';') {
         if (current.trim()) parts.push({ cmd: current.trim(), separator: ';' })
         current = ''
+        lastCharWasUnescapedDollar = false
         i++
         while (i < command.length && /\s/.test(command[i])) i++
         continue

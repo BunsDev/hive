@@ -154,6 +154,7 @@ export class CommandFilterService {
         if (char === '\n') {
           if (current.trim()) parts.push(current.trim())
           current = ''
+          lastCharWasUnescapedDollar = false
           i++
           continue
         }
@@ -162,6 +163,7 @@ export class CommandFilterService {
         if (char === '&' && next === '&') {
           if (current.trim()) parts.push(current.trim())
           current = ''
+          lastCharWasUnescapedDollar = false
           i += 2
           // Skip whitespace after operator
           while (i < command.length && /\s/.test(command[i])) i++
@@ -172,6 +174,7 @@ export class CommandFilterService {
         if (char === '|' && next === '|') {
           if (current.trim()) parts.push(current.trim())
           current = ''
+          lastCharWasUnescapedDollar = false
           i += 2
           // Skip whitespace after operator
           while (i < command.length && /\s/.test(command[i])) i++
@@ -182,6 +185,7 @@ export class CommandFilterService {
         if (char === '|' && next !== '|') {
           if (current.trim()) parts.push(current.trim())
           current = ''
+          lastCharWasUnescapedDollar = false
           i++
           // Skip whitespace after operator
           while (i < command.length && /\s/.test(command[i])) i++
@@ -192,6 +196,7 @@ export class CommandFilterService {
         if (char === ';') {
           if (current.trim()) parts.push(current.trim())
           current = ''
+          lastCharWasUnescapedDollar = false
           i++
           // Skip whitespace after operator
           while (i < command.length && /\s/.test(command[i])) i++
