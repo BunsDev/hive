@@ -1,17 +1,21 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DatabaseService } from '../../src/main/db/database'
 
-const { existsSyncMock, listWorktreesMock, pruneWorktreesMock } = vi.hoisted(() => ({
-  existsSyncMock: vi.fn(),
-  listWorktreesMock: vi.fn(),
-  pruneWorktreesMock: vi.fn()
-}))
+const { existsSyncMock, realpathSyncMock, listWorktreesMock, pruneWorktreesMock } = vi.hoisted(
+  () => ({
+    existsSyncMock: vi.fn(),
+    realpathSyncMock: vi.fn(),
+    listWorktreesMock: vi.fn(),
+    pruneWorktreesMock: vi.fn()
+  })
+)
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs')
   return {
     ...actual,
-    existsSync: existsSyncMock
+    existsSync: existsSyncMock,
+    realpathSync: realpathSyncMock
   }
 })
 
@@ -55,6 +59,7 @@ describe('syncWorktreesOp', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     existsSyncMock.mockReturnValue(false)
+    realpathSyncMock.mockImplementation((filePath: string) => filePath)
     listWorktreesMock.mockResolvedValue([])
     pruneWorktreesMock.mockResolvedValue(undefined)
   })
@@ -112,6 +117,37 @@ describe('syncWorktreesOp', () => {
       branch_name: '',
       path: '/external/detached-preview'
     })
+  })
+
+  test('skips importing the main project when git returns a canonicalized path', async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: '/private/repos/app', branch: 'main', isMain: true }
+    ])
+    realpathSyncMock.mockImplementation((filePath: string) => {
+      if (filePath === '/repos/app') return '/private/repos/app'
+      return filePath
+    })
+
+    const db = createDbMock({
+      getActiveWorktreesByProject: vi.fn(() => [
+        {
+          id: 'wt-default',
+          path: '/repos/app',
+          branch_name: 'main',
+          name: '(no-worktree)',
+          is_default: true,
+          branch_renamed: 0
+        }
+      ])
+    })
+
+    const result = await syncWorktreesOp(db, {
+      projectId: 'proj-1',
+      projectPath: '/repos/app'
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(db.createWorktree).not.toHaveBeenCalled()
   })
 
   test('archives stale non-default database worktrees that are missing from git and disk', async () => {

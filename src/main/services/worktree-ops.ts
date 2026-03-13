@@ -1,5 +1,5 @@
-import { existsSync } from 'fs'
-import { basename } from 'path'
+import { existsSync, realpathSync } from 'fs'
+import { basename, resolve } from 'path'
 import { createGitService, isAutoNamedBranch } from './git-service'
 import { type BreedType } from './breed-names'
 import { scriptRunner } from './script-runner'
@@ -76,8 +76,16 @@ export interface SimpleResult {
   error?: string
 }
 
-function getImportedWorktreeName(branch: string | undefined, worktreePath: string): string {
+function getImportedWorktreeName(branch: string, worktreePath: string): string {
   return branch || basename(worktreePath)
+}
+
+function normalizeWorktreePath(worktreePath: string): string {
+  try {
+    return realpathSync(worktreePath)
+  } catch {
+    return resolve(worktreePath)
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -232,17 +240,25 @@ export async function syncWorktreesOp(
 ): Promise<SimpleResult> {
   try {
     const gitService = createGitService(params.projectPath)
+    const normalizedProjectPath = normalizeWorktreePath(params.projectPath)
 
     // Get actual worktrees from git
     const gitWorktrees = await gitService.listWorktrees()
-    const gitWorktreePaths = new Set(gitWorktrees.map((w) => w.path))
+    const normalizedGitWorktrees = gitWorktrees.map((worktree) => ({
+      ...worktree,
+      normalizedPath: normalizeWorktreePath(worktree.path)
+    }))
+    const gitWorktreePaths = new Set(normalizedGitWorktrees.map((w) => w.normalizedPath))
 
     // Get database worktrees
     const dbWorktrees = db.getActiveWorktreesByProject(params.projectId)
-    const dbWorktreePaths = new Set(dbWorktrees.map((w) => w.path))
+    const dbWorktreePaths = new Set(dbWorktrees.map((w) => normalizeWorktreePath(w.path)))
 
-    for (const gitWorktree of gitWorktrees) {
-      if (gitWorktree.path === params.projectPath || dbWorktreePaths.has(gitWorktree.path)) {
+    for (const gitWorktree of normalizedGitWorktrees) {
+      if (
+        gitWorktree.normalizedPath === normalizedProjectPath ||
+        dbWorktreePaths.has(gitWorktree.normalizedPath)
+      ) {
         continue
       }
 
@@ -264,7 +280,7 @@ export async function syncWorktreesOp(
     }
 
     // Build a map of git worktree path -> branch for quick lookup
-    const gitBranchByPath = new Map(gitWorktrees.map((w) => [w.path, w.branch]))
+    const gitBranchByPath = new Map(normalizedGitWorktrees.map((w) => [w.normalizedPath, w.branch]))
 
     // Check each database worktree
     for (const dbWorktree of dbWorktrees) {
@@ -273,14 +289,16 @@ export async function syncWorktreesOp(
       }
 
       // If worktree path doesn't exist in git worktrees or on disk
-      if (!gitWorktreePaths.has(dbWorktree.path) && !existsSync(dbWorktree.path)) {
+      const normalizedDbWorktreePath = normalizeWorktreePath(dbWorktree.path)
+
+      if (!gitWorktreePaths.has(normalizedDbWorktreePath) && !existsSync(dbWorktree.path)) {
         // Mark as archived (worktree was removed outside of Hive)
         db.archiveWorktree(dbWorktree.id)
         continue
       }
 
       // Sync branch name if it was renamed outside of Hive
-      const gitBranch = gitBranchByPath.get(dbWorktree.path)
+      const gitBranch = gitBranchByPath.get(normalizedDbWorktreePath)
       if (gitBranch && gitBranch !== dbWorktree.branch_name && !dbWorktree.branch_renamed) {
         log.info('Branch renamed externally, updating DB', {
           worktreeId: dbWorktree.id,
