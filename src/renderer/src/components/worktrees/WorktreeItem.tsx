@@ -138,7 +138,7 @@ export function WorktreeItem({
   const isChecked = connectionModeSelectedIds.has(worktree.id)
 
   const worktreeLabel =
-    worktree.is_default || displayName === worktree.branch_name
+    worktree.is_default || !worktree.branch_name || displayName === worktree.branch_name
       ? displayName
       : `${displayName} - ${worktree.branch_name}`
 
