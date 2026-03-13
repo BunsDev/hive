@@ -395,7 +395,16 @@ const worktreeOps = {
   stopSandbox: (
     name: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('worktree:stopSandbox', name)
+    ipcRenderer.invoke('worktree:stopSandbox', name),
+
+  hasSetupToken: (): Promise<{ success: boolean; hasToken: boolean; error?: string }> =>
+    ipcRenderer.invoke('sandbox:hasToken'),
+
+  generateSetupToken: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('sandbox:generateToken'),
+
+  clearSetupToken: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('sandbox:clearToken')
 }
 
 // System operations API

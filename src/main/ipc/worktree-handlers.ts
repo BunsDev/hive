@@ -358,4 +358,81 @@ export function registerWorktreeHandlers(): void {
       }
     }
   })
+
+  // Check if a sandbox setup token exists
+  ipcMain.handle('sandbox:hasToken', async () => {
+    try {
+      const db = getDatabase()
+      const token = db.getSandboxToken()
+      return { success: true, hasToken: !!token }
+    } catch (error) {
+      log.error('Failed to check sandbox token', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return { success: false, hasToken: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // Generate a sandbox setup token via claude setup-token
+  ipcMain.handle('sandbox:generateToken', async () => {
+    try {
+      const { execFile } = await import('child_process')
+      const { promisify } = await import('util')
+      const execFileAsync = promisify(execFile)
+
+      log.info('Starting sandbox token generation via claude setup-token')
+
+      const { stdout } = await execFileAsync('claude', ['setup-token'], {
+        timeout: 120_000,
+        env: process.env,
+        encoding: 'utf-8'
+      })
+
+      // Parse the token from stdout — look for a line containing the OAuth token pattern
+      const lines = stdout.split('\n')
+      const tokenLine = lines.find((line) => line.trim().startsWith('sk-ant-'))
+      if (!tokenLine) {
+        log.error('Failed to parse token from claude setup-token output', {
+          lineCount: lines.length
+        })
+        return {
+          success: false,
+          error: 'Could not find token in claude setup-token output. Please try again.'
+        }
+      }
+
+      const token = tokenLine.trim()
+      const db = getDatabase()
+      db.setSandboxToken(token)
+      log.info('Sandbox setup token stored successfully')
+
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to generate sandbox token', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // Clear the stored sandbox setup token
+  ipcMain.handle('sandbox:clearToken', async () => {
+    try {
+      const db = getDatabase()
+      db.deleteSetting('docker_sandbox_token')
+      log.info('Sandbox setup token cleared')
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to clear sandbox token', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
 }

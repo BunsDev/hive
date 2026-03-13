@@ -400,6 +400,9 @@ declare global {
         error?: string
       }>
       stopSandbox: (name: string) => Promise<{ success: boolean; error?: string }>
+      hasSetupToken: () => Promise<{ success: boolean; hasToken: boolean; error?: string }>
+      generateSetupToken: () => Promise<{ success: boolean; error?: string }>
+      clearSetupToken: () => Promise<{ success: boolean; error?: string }>
     }
     systemOps: {
       getLogDir: () => Promise<string>
