@@ -1,16 +1,7 @@
 import simpleGit, { SimpleGit, BranchSummary } from 'simple-git'
 import { app } from 'electron'
-import { join, basename, dirname, resolve } from 'path'
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  cpSync,
-  writeFileSync,
-  unlinkSync,
-  readdirSync,
-  realpathSync
-} from 'fs'
+import { join, basename, dirname } from 'path'
+import { existsSync, mkdirSync, rmSync, cpSync, writeFileSync, unlinkSync, readdirSync } from 'fs'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { tmpdir } from 'os'
@@ -22,17 +13,10 @@ import {
   type BreedType
 } from './breed-names'
 import { createLogger } from './logger'
+import { normalizeWorktreePath } from './path-utils'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger({ component: 'GitService' })
-
-function normalizeWorktreePath(worktreePath: string): string {
-  try {
-    return realpathSync(worktreePath)
-  } catch {
-    return resolve(worktreePath)
-  }
-}
 
 export interface WorktreeInfo {
   path: string

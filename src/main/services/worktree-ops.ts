@@ -1,7 +1,8 @@
-import { existsSync, realpathSync } from 'fs'
-import { basename, resolve } from 'path'
+import { existsSync } from 'fs'
+import { basename } from 'path'
 import { createGitService, isAutoNamedBranch } from './git-service'
 import { type BreedType } from './breed-names'
+import { normalizeWorktreePath } from './path-utils'
 import { scriptRunner } from './script-runner'
 import { assignPort, releasePort } from './port-registry'
 import { createLogger } from './logger'
@@ -78,14 +79,6 @@ export interface SimpleResult {
 
 function getImportedWorktreeName(branch: string, worktreePath: string): string {
   return branch || basename(worktreePath)
-}
-
-function normalizeWorktreePath(worktreePath: string): string {
-  try {
-    return realpathSync(worktreePath)
-  } catch {
-    return resolve(worktreePath)
-  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
