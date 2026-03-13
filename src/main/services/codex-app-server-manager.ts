@@ -573,9 +573,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       params.settings = { reasoningEffort: input.reasoningEffort }
     }
 
-    if (input.interactionMode || input.developerInstructions) {
-      const mode = input.interactionMode ?? 'default'
-
     if (input.serviceTier !== undefined) {
       params.serviceTier = input.serviceTier
     }
