@@ -263,6 +263,15 @@ export async function syncWorktreesOp(
         continue
       }
 
+      if (!existsSync(gitWorktree.path)) {
+        log.info('Skipping missing git worktree during sync', {
+          projectId: params.projectId,
+          path: gitWorktree.path,
+          branch: gitWorktree.branch
+        })
+        continue
+      }
+
       const importedName = getImportedWorktreeName(gitWorktree.branch, gitWorktree.path)
 
       log.info('Importing git worktree into database', {
@@ -309,7 +318,11 @@ export async function syncWorktreesOp(
 
       // Sync branch name if it was renamed outside of Hive
       const gitBranch = gitBranchByPath.get(normalizedDbWorktreePath)
-      if (gitBranch && gitBranch !== dbWorktree.branch_name && !dbWorktree.branch_renamed) {
+      if (
+        gitBranch !== undefined &&
+        gitBranch !== dbWorktree.branch_name &&
+        !dbWorktree.branch_renamed
+      ) {
         log.info('Branch renamed externally, updating DB', {
           worktreeId: dbWorktree.id,
           oldBranch: dbWorktree.branch_name,
@@ -321,9 +334,10 @@ export async function syncWorktreesOp(
         const worktreeName = dbWorktree.name.toLowerCase()
         const isAutoName = isAutoNamedBranch(worktreeName)
         const shouldUpdateName = nameMatchesBranch || isAutoName
+        const syncedName = getImportedWorktreeName(gitBranch, dbWorktree.path)
         db.updateWorktree(dbWorktree.id, {
           branch_name: gitBranch,
-          ...(shouldUpdateName ? { name: gitBranch } : {})
+          ...(shouldUpdateName ? { name: syncedName } : {})
         })
       }
     }

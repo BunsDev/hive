@@ -72,6 +72,7 @@ describe('syncWorktreesOp', () => {
   })
 
   test('imports git worktrees missing from the database and skips the main project path', async () => {
+    existsSyncMock.mockImplementation((filePath: string) => filePath !== '/external/missing')
     listWorktreesMock.mockResolvedValue([
       { path: '/repos/app', branch: 'main', isMain: true },
       { path: '/external/feat-auth', branch: 'feat/auth', isMain: false }
@@ -107,6 +108,9 @@ describe('syncWorktreesOp', () => {
   })
 
   test('falls back to the worktree folder name when git has no branch name', async () => {
+    existsSyncMock.mockImplementation(
+      (filePath: string) => filePath === '/external/detached-preview'
+    )
     listWorktreesMock.mockResolvedValue([
       { path: '/external/detached-preview', branch: '', isMain: false }
     ])
@@ -186,6 +190,7 @@ describe('syncWorktreesOp', () => {
   })
 
   test('auto-assigns a port to imported worktrees when enabled for the project', async () => {
+    existsSyncMock.mockImplementation((filePath: string) => filePath !== '/external/missing')
     listWorktreesMock.mockResolvedValue([
       { path: '/repos/app', branch: 'main', isMain: true },
       { path: '/external/feat-auth', branch: 'feat/auth', isMain: false }
@@ -212,6 +217,74 @@ describe('syncWorktreesOp', () => {
 
     expect(result).toEqual({ success: true })
     expect(assignPortMock).toHaveBeenCalledWith('/external/feat-auth')
+  })
+
+  test('does not import missing prunable git worktrees', async () => {
+    existsSyncMock.mockImplementation((filePath: string) => filePath === '/repos/app')
+    listWorktreesMock.mockResolvedValue([
+      { path: '/repos/app', branch: 'main', isMain: true },
+      { path: '/external/prunable', branch: 'feat/prunable', isMain: false }
+    ])
+
+    const db = createDbMock({
+      getActiveWorktreesByProject: vi.fn(() => [
+        {
+          id: 'wt-default',
+          path: '/repos/app',
+          branch_name: 'main',
+          name: '(no-worktree)',
+          is_default: true,
+          branch_renamed: 0
+        }
+      ])
+    })
+
+    const result = await syncWorktreesOp(db, {
+      projectId: 'proj-1',
+      projectPath: '/repos/app'
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(db.createWorktree).not.toHaveBeenCalled()
+  })
+
+  test('clears stale branch metadata when a tracked worktree becomes detached', async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: '/repos/app', branch: 'main', isMain: true },
+      { path: '/external/feat-auth', branch: '', isMain: false }
+    ])
+
+    const db = createDbMock({
+      getActiveWorktreesByProject: vi.fn(() => [
+        {
+          id: 'wt-default',
+          path: '/repos/app',
+          branch_name: 'main',
+          name: '(no-worktree)',
+          is_default: true,
+          branch_renamed: 0
+        },
+        {
+          id: 'wt-feature',
+          path: '/external/feat-auth',
+          branch_name: 'feat/auth',
+          name: 'feat/auth',
+          is_default: false,
+          branch_renamed: 0
+        }
+      ])
+    })
+
+    const result = await syncWorktreesOp(db, {
+      projectId: 'proj-1',
+      projectPath: '/repos/app'
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(db.updateWorktree).toHaveBeenCalledWith('wt-feature', {
+      branch_name: '',
+      name: 'feat-auth'
+    })
   })
 
   test('archives stale non-default database worktrees that are missing from git and disk', async () => {

@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-const rawMock = vi.hoisted(() => vi.fn())
+const { rawMock, realpathSyncMock } = vi.hoisted(() => ({
+  rawMock: vi.fn(),
+  realpathSyncMock: vi.fn((worktreePath: string) =>
+    worktreePath === '/repo' ? '/private/repo' : worktreePath
+  )
+}))
+
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs')
+  return {
+    ...actual,
+    realpathSync: realpathSyncMock
+  }
+})
 
 vi.mock('electron', () => ({
   app: {
@@ -27,6 +40,9 @@ import { GitService } from '../../src/main/services/git-service'
 describe('GitService.listWorktrees', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    realpathSyncMock.mockImplementation((worktreePath: string) =>
+      worktreePath === '/repo' ? '/private/repo' : worktreePath
+    )
   })
 
   test('includes detached HEAD worktrees with an empty branch name', async () => {
@@ -49,5 +65,6 @@ describe('GitService.listWorktrees', () => {
       { path: '/repo', branch: 'main', isMain: true },
       { path: '/detached-preview', branch: '', isMain: false }
     ])
+    expect(realpathSyncMock).toHaveBeenCalledWith('/repo')
   })
 })
