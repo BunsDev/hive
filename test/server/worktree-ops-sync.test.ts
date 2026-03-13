@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { DatabaseService } from '../../src/main/db/database'
 
 const { existsSyncMock, listWorktreesMock, pruneWorktreesMock } = vi.hoisted(() => ({
   existsSyncMock: vi.fn(),
@@ -47,7 +48,7 @@ function createDbMock(overrides: Record<string, unknown> = {}) {
     updateWorktree: vi.fn(),
     archiveWorktree: vi.fn(),
     ...overrides
-  }
+  } as unknown as DatabaseService
 }
 
 describe('syncWorktreesOp', () => {
@@ -77,7 +78,7 @@ describe('syncWorktreesOp', () => {
       ])
     })
 
-    const result = await syncWorktreesOp(db as any, {
+    const result = await syncWorktreesOp(db, {
       projectId: 'proj-1',
       projectPath: '/repos/app'
     })
@@ -100,7 +101,7 @@ describe('syncWorktreesOp', () => {
 
     const db = createDbMock()
 
-    await syncWorktreesOp(db as any, {
+    await syncWorktreesOp(db, {
       projectId: 'proj-1',
       projectPath: '/repos/app'
     })
@@ -135,7 +136,7 @@ describe('syncWorktreesOp', () => {
       ])
     })
 
-    await syncWorktreesOp(db as any, {
+    await syncWorktreesOp(db, {
       projectId: 'proj-1',
       projectPath: '/repos/app'
     })
