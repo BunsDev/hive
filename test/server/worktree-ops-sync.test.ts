@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { DatabaseService } from '../../src/main/db/database'
 
-const { existsSyncMock, realpathSyncMock, listWorktreesMock, pruneWorktreesMock } = vi.hoisted(
-  () => ({
+const { existsSyncMock, realpathSyncMock, listWorktreesMock, pruneWorktreesMock, assignPortMock } =
+  vi.hoisted(() => ({
     existsSyncMock: vi.fn(),
     realpathSyncMock: vi.fn(),
     listWorktreesMock: vi.fn(),
-    pruneWorktreesMock: vi.fn()
-  })
-)
+    pruneWorktreesMock: vi.fn(),
+    assignPortMock: vi.fn()
+  }))
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs')
@@ -33,6 +33,11 @@ vi.mock('../../src/main/services/logger', () => ({
   })
 }))
 
+vi.mock('../../src/main/services/port-registry', () => ({
+  assignPort: assignPortMock,
+  releasePort: vi.fn()
+}))
+
 vi.mock('../../src/main/services/git-service', async () => {
   return {
     createGitService: vi.fn(() => ({
@@ -48,7 +53,8 @@ import { syncWorktreesOp } from '../../src/main/services/worktree-ops'
 function createDbMock(overrides: Record<string, unknown> = {}) {
   return {
     getActiveWorktreesByProject: vi.fn(() => []),
-    createWorktree: vi.fn(),
+    getProject: vi.fn(() => null),
+    createWorktree: vi.fn((data: { path: string }) => ({ id: 'wt-created', path: data.path })),
     updateWorktree: vi.fn(),
     archiveWorktree: vi.fn(),
     ...overrides
@@ -62,6 +68,7 @@ describe('syncWorktreesOp', () => {
     realpathSyncMock.mockImplementation((filePath: string) => filePath)
     listWorktreesMock.mockResolvedValue([])
     pruneWorktreesMock.mockResolvedValue(undefined)
+    assignPortMock.mockReturnValue(3011)
   })
 
   test('imports git worktrees missing from the database and skips the main project path', async () => {
@@ -176,6 +183,35 @@ describe('syncWorktreesOp', () => {
       branch_name: 'trunk'
     })
     expect(db.archiveWorktree).not.toHaveBeenCalled()
+  })
+
+  test('auto-assigns a port to imported worktrees when enabled for the project', async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: '/repos/app', branch: 'main', isMain: true },
+      { path: '/external/feat-auth', branch: 'feat/auth', isMain: false }
+    ])
+
+    const db = createDbMock({
+      getProject: vi.fn(() => ({ auto_assign_port: true })),
+      getActiveWorktreesByProject: vi.fn(() => [
+        {
+          id: 'wt-default',
+          path: '/repos/app',
+          branch_name: 'main',
+          name: '(no-worktree)',
+          is_default: true,
+          branch_renamed: 0
+        }
+      ])
+    })
+
+    const result = await syncWorktreesOp(db, {
+      projectId: 'proj-1',
+      projectPath: '/repos/app'
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(assignPortMock).toHaveBeenCalledWith('/external/feat-auth')
   })
 
   test('archives stale non-default database worktrees that are missing from git and disk', async () => {

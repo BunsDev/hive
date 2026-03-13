@@ -241,6 +241,7 @@ export async function syncWorktreesOp(
   try {
     const gitService = createGitService(params.projectPath)
     const normalizedProjectPath = normalizeWorktreePath(params.projectPath)
+    const project = db.getProject(params.projectId)
 
     // Get actual worktrees from git
     const gitWorktrees = await gitService.listWorktrees()
@@ -271,12 +272,21 @@ export async function syncWorktreesOp(
         name: importedName
       })
 
-      db.createWorktree({
+      const importedWorktree = db.createWorktree({
         project_id: params.projectId,
         name: importedName,
         branch_name: gitWorktree.branch,
         path: gitWorktree.path
       })
+
+      if (project?.auto_assign_port) {
+        const port = assignPort(importedWorktree.path)
+        log.info('Auto-assigned port to imported worktree', {
+          worktreeId: importedWorktree.id,
+          path: importedWorktree.path,
+          port
+        })
+      }
     }
 
     // Build a map of git worktree path -> branch for quick lookup
@@ -339,6 +349,14 @@ export async function duplicateWorktreeOp(
     sourceBranch: params.sourceBranch,
     projectName: params.projectName
   })
+
+  if (!params.sourceBranch) {
+    return {
+      success: false,
+      error: 'Detached HEAD worktrees cannot be duplicated'
+    }
+  }
+
   try {
     const gitService = createGitService(params.projectPath)
     const result = await gitService.duplicateWorktree(
@@ -406,6 +424,14 @@ export async function renameWorktreeBranchOp(
     oldBranch: params.oldBranch,
     newBranch: params.newBranch
   })
+
+  if (!params.oldBranch) {
+    return {
+      success: false,
+      error: 'Detached HEAD worktrees cannot be renamed'
+    }
+  }
+
   try {
     const gitService = createGitService(params.worktreePath)
     const result = await gitService.renameBranch(

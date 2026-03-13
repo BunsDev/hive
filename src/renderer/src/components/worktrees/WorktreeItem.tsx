@@ -136,6 +136,7 @@ export function WorktreeItem({
   const isInConnectionMode = connectionModeActive
   const isSource = connectionModeSourceId === worktree.id
   const isChecked = connectionModeSelectedIds.has(worktree.id)
+  const hasNamedBranch = Boolean(worktree.branch_name)
 
   const worktreeLabel =
     worktree.is_default || !worktree.branch_name || displayName === worktree.branch_name
@@ -268,12 +269,14 @@ export function WorktreeItem({
   }, [])
 
   const startBranchRename = useCallback((): void => {
+    if (!hasNamedBranch) return
+
     intentionalCloseRef.current = false
     if (blurTimerRef.current) clearTimeout(blurTimerRef.current) // Clear any pending blur timer
     renameStartTimeRef.current = Date.now() // Record time before setting state
     setBranchNameInput(worktree.branch_name)
     setIsRenamingBranch(true)
-  }, [worktree.branch_name])
+  }, [hasNamedBranch, worktree.branch_name])
 
   const handleBranchRename = useCallback(async (): Promise<void> => {
     intentionalCloseRef.current = true
@@ -406,13 +409,22 @@ export function WorktreeItem({
       projectPath
     )
     if (result.success) {
-      gitToast.worktreeUnbranched(worktree.name)
+      if (hasNamedBranch) {
+        gitToast.worktreeUnbranched(worktree.name)
+      } else {
+        toast.success(`Worktree "${worktree.name}" removed`)
+      }
     } else {
       gitToast.operationFailed('unbranch worktree', result.error, handleUnbranch)
     }
-  }, [unbranchWorktree, worktree, projectPath])
+  }, [hasNamedBranch, unbranchWorktree, worktree, projectPath])
 
   const handleDuplicate = useCallback(async (): Promise<void> => {
+    if (!hasNamedBranch) {
+      toast.error('Detached HEAD worktrees cannot be duplicated')
+      return
+    }
+
     const project = useProjectStore.getState().projects.find((p) => p.id === worktree.project_id)
     if (!project) return
     const result = await useWorktreeStore
@@ -429,7 +441,7 @@ export function WorktreeItem({
     } else {
       toast.error(result.error || 'Failed to duplicate worktree')
     }
-  }, [worktree])
+  }, [hasNamedBranch, worktree])
 
   // --- Connection mode rendering (simplified, no menus) ---
   if (isInConnectionMode) {
@@ -703,28 +715,44 @@ export function WorktreeItem({
               </DropdownMenuItem>
               {!worktree.is_default && (
                 <>
-                  <DropdownMenuItem onClick={startBranchRename}>
-                    <Pencil className="h-4 w-4 mr-2" />
-                    Rename Branch
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleDuplicate}>
-                    <GitBranchPlus className="h-4 w-4 mr-2" />
-                    Duplicate
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleUnbranch}>
-                    <GitBranchPlus className="h-4 w-4 mr-2" />
-                    Unbranch
-                    <span className="ml-auto text-xs text-muted-foreground">Keep branch</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={handleArchive}
-                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Archive className="h-4 w-4 mr-2" />
-                    Archive
-                    <span className="ml-auto text-xs text-muted-foreground">Delete branch</span>
-                  </DropdownMenuItem>
+                  {hasNamedBranch ? (
+                    <>
+                      <DropdownMenuItem onClick={startBranchRename}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Rename Branch
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleDuplicate}>
+                        <GitBranchPlus className="h-4 w-4 mr-2" />
+                        Duplicate
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleUnbranch}>
+                        <GitBranchPlus className="h-4 w-4 mr-2" />
+                        Unbranch
+                        <span className="ml-auto text-xs text-muted-foreground">Keep branch</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={handleArchive}
+                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                      >
+                        <Archive className="h-4 w-4 mr-2" />
+                        Archive
+                        <span className="ml-auto text-xs text-muted-foreground">Delete branch</span>
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={handleUnbranch}
+                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                      >
+                        <Archive className="h-4 w-4 mr-2" />
+                        Remove Worktree
+                        <span className="ml-auto text-xs text-muted-foreground">Detached HEAD</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </>
               )}
             </DropdownMenuContent>
@@ -808,28 +836,44 @@ export function WorktreeItem({
         </ContextMenuItem>
         {!worktree.is_default && (
           <>
-            <ContextMenuItem onClick={startBranchRename}>
-              <Pencil className="h-4 w-4 mr-2" />
-              Rename Branch
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleDuplicate}>
-              <GitBranchPlus className="h-4 w-4 mr-2" />
-              Duplicate
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={handleUnbranch}>
-              <GitBranchPlus className="h-4 w-4 mr-2" />
-              Unbranch
-              <span className="ml-auto text-xs text-muted-foreground">Keep branch</span>
-            </ContextMenuItem>
-            <ContextMenuItem
-              onClick={handleArchive}
-              className="text-destructive focus:text-destructive focus:bg-destructive/10"
-            >
-              <Archive className="h-4 w-4 mr-2" />
-              Archive
-              <span className="ml-auto text-xs text-muted-foreground">Delete branch</span>
-            </ContextMenuItem>
+            {hasNamedBranch ? (
+              <>
+                <ContextMenuItem onClick={startBranchRename}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Rename Branch
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleDuplicate}>
+                  <GitBranchPlus className="h-4 w-4 mr-2" />
+                  Duplicate
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={handleUnbranch}>
+                  <GitBranchPlus className="h-4 w-4 mr-2" />
+                  Unbranch
+                  <span className="ml-auto text-xs text-muted-foreground">Keep branch</span>
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={handleArchive}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <Archive className="h-4 w-4 mr-2" />
+                  Archive
+                  <span className="ml-auto text-xs text-muted-foreground">Delete branch</span>
+                </ContextMenuItem>
+              </>
+            ) : (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onClick={handleUnbranch}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <Archive className="h-4 w-4 mr-2" />
+                  Remove Worktree
+                  <span className="ml-auto text-xs text-muted-foreground">Detached HEAD</span>
+                </ContextMenuItem>
+              </>
+            )}
           </>
         )}
       </ContextMenuContent>
