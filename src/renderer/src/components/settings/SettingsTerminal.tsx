@@ -133,7 +133,9 @@ export function SettingsTerminal(): React.JSX.Element {
   const handleRegenerateToken = async (): Promise<void> => {
     setIsRegenerating(true)
     try {
-      await window.worktreeOps.clearSetupToken()
+      // Generate first — setSandboxToken() overwrites the old value.
+      // We don't clear first to avoid leaving the user with no token
+      // if generation fails (e.g., user cancels browser auth).
       const result = await window.worktreeOps.generateSetupToken()
       setTokenStatus(result.success)
     } catch {

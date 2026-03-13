@@ -98,7 +98,7 @@ export function SandboxSetupDialog({
           {state === 'idle' && (
             <p className="text-sm text-muted-foreground">
               Clicking &quot;Generate Setup Token&quot; will open your browser for authentication.
-              Once complete, the token will be stored securely and sandbox mode will be enabled.
+              Once complete, the token will be stored locally and sandbox mode will be enabled.
             </p>
           )}
 
