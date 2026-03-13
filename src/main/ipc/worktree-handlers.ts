@@ -369,20 +369,33 @@ export function registerWorktreeHandlers(): void {
       log.error('Failed to check sandbox token', {
         error: error instanceof Error ? error.message : String(error)
       })
-      return { success: false, hasToken: false, error: error instanceof Error ? error.message : 'Unknown error' }
+      return {
+        success: false,
+        hasToken: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
     }
   })
 
   // Generate a sandbox setup token via claude setup-token
   ipcMain.handle('sandbox:generateToken', async () => {
     try {
+      const { resolveClaudeBinaryPath } = await import('../services/claude-binary-resolver')
+      const claudeBinary = resolveClaudeBinaryPath()
+      if (!claudeBinary) {
+        return {
+          success: false,
+          error: 'Claude CLI not found. Please install Claude Code first.'
+        }
+      }
+
+      log.info('Starting sandbox token generation via claude setup-token')
+
       const { execFile } = await import('child_process')
       const { promisify } = await import('util')
       const execFileAsync = promisify(execFile)
 
-      log.info('Starting sandbox token generation via claude setup-token')
-
-      const { stdout } = await execFileAsync('claude', ['setup-token'], {
+      const { stdout } = await execFileAsync(claudeBinary, ['setup-token'], {
         timeout: 120_000,
         env: process.env,
         encoding: 'utf-8'
@@ -422,7 +435,7 @@ export function registerWorktreeHandlers(): void {
   ipcMain.handle('sandbox:clearToken', async () => {
     try {
       const db = getDatabase()
-      db.deleteSetting('docker_sandbox_token')
+      db.deleteSandboxToken()
       log.info('Sandbox setup token cleared')
       return { success: true }
     } catch (error) {

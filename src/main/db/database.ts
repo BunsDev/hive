@@ -1376,6 +1376,10 @@ export class DatabaseService {
     this.setSetting('docker_sandbox_token', token)
   }
 
+  deleteSandboxToken(): void {
+    this.deleteSetting('docker_sandbox_token')
+  }
+
   // Utility methods
   getSchemaVersion(): number {
     const version = this.getSetting('schema_version')
