@@ -2039,6 +2039,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     // Add 5-minute timeout to prevent infinite waiting if dialog fails to show
 
     let timeoutHandle: NodeJS.Timeout | undefined
+    // Store abort handler reference for cleanup
+    let onAbort: (() => void) | undefined
+
     const userResponse = await Promise.race([
       new Promise<{
         approved: boolean
@@ -2058,7 +2061,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         })
 
         // If the session is aborted while waiting, auto-deny
-        const onAbort = (): void => {
+        onAbort = (): void => {
           if (this.pendingApprovals.has(requestId)) {
             log.info('handleCommandApproval: session aborted while approval pending, auto-denying', {
               requestId
@@ -2086,8 +2089,11 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       })
     ])
 
-    // Clean up tracking state
+    // Clean up all resources
     this.pendingApprovals.delete(requestId)
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+    // Remove abort listener to prevent memory leak (if not already fired)
+    if (onAbort) options.signal.removeEventListener('abort', onAbort)
 
     // Handle "remember" choice - update settings with user-selected pattern(s)
     if (userResponse.remember) {

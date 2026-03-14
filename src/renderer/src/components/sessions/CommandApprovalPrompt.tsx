@@ -173,7 +173,17 @@ function FlatPatternPicker({
 
 /**
  * Split a bash command for display, respecting quotes and command substitutions.
- * Mirrors backend splitBashChain logic.
+ *
+ * ⚠️ IMPORTANT: This function MUST mirror the backend logic in:
+ * src/main/services/command-filter-service.ts → splitBashChain()
+ *
+ * Any changes to parsing logic MUST be synchronized between both implementations
+ * to ensure the UI displays the exact same command breakdown that the backend evaluates.
+ *
+ * Differences:
+ * - Backend returns string[] - Frontend returns Array<{cmd, separator}>
+ * - Frontend tracks separators for display (&&, ||, |, ;, newline)
+ * - Both use identical parsing rules for quotes, substitutions, and operators
  */
 function splitBashForDisplay(
   command: string
@@ -500,6 +510,7 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
     selectedSubPatterns,
     selectedFlatPattern,
     approvedSubCommands,
+    uniqueSubCommandPatterns,
     onReply
   ])
 

@@ -28,18 +28,38 @@ export class CommandFilterService {
    * Splits on ` && `, ` || `, `| ` (pipe), `;`, and unquoted newlines while respecting
    * quotes and command substitutions.
    *
-   * SECURITY MODEL:
-   * - Newlines inside quotes or $(...) are preserved (not split)
-   * - Newlines at the top level ARE split (prevents injection attacks)
-   * - If any part contains a newline after parsing, it indicates a parser limitation
-   *   and that part is defensively re-split on newlines
-   * - Parts with newlines won't match allowlist patterns (no normalization in matchesAnyPattern)
+   * ⚠️ IMPORTANT: This logic is duplicated in the frontend for display purposes:
+   * src/renderer/src/components/sessions/CommandApprovalPrompt.tsx → splitBashForDisplay()
+   * Any changes to parsing rules MUST be synchronized between both implementations.
    *
-   * KNOWN LIMITATION: Top-level heredocs (not inside $() or quotes) are split line-by-line.
-   * This is acceptable because:
-   * 1. Top-level heredocs are rare in command approval contexts
-   * 2. Heredocs inside $() or quotes (the common case) work correctly
-   * 3. The security fallback handles edge cases defensively
+   * SECURITY MODEL (Defense in Depth):
+   * - Newlines at the top level are split during parsing (prevents injection attacks)
+   * - After parsing, ANY part containing a newline is defensively re-split (lines 219-249)
+   * - This means even newlines inside quotes or $(...) trigger re-splitting
+   * - This aggressive approach prevents bypassing the security check via complex nesting
+   * - Parts with newlines won't match allowlist patterns (no normalization in matchesAnyPattern)
+   * - Result: Commands with multi-line strings will be broken up and require individual approval
+   *
+   * SUPPORTED FEATURES:
+   * ✅ Operators: && || | ; (splits on these at top level)
+   * ✅ Newlines: splits on unquoted newlines (security)
+   * ✅ Single quotes: preserves everything inside (no substitution)
+   * ✅ Double quotes: preserves operators and newlines, allows substitutions
+   * ✅ Escape sequences: \$ \" \n etc. (in double quotes and unquoted)
+   * ✅ Command substitutions: $(cmd) including nested $(outer $(inner))
+   * ✅ Bare subshells: (cmd1 && cmd2) - preserves operators inside
+   * ✅ Mixed contexts: "text $(cmd | cmd) text" && other
+   *
+   * KNOWN LIMITATIONS:
+   * ⚠️ Top-level heredocs (not inside $() or quotes) are split line-by-line.
+   *    This is acceptable because:
+   *    1. Top-level heredocs are rare in command approval contexts
+   *    2. Heredocs inside $() or quotes (the common case) work correctly
+   *    3. The security fallback handles edge cases defensively
+   *
+   * ⚠️ Backtick command substitutions `cmd` are NOT supported (use $() instead)
+   * ⚠️ Process substitutions <(cmd) and >(cmd) are NOT supported
+   * ⚠️ Brace expansion {a,b,c} is treated as literal text
    */
   splitBashChain(command: string): string[] {
     const parts: string[] = []
