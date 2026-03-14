@@ -278,11 +278,12 @@ export function registerWorktreeHandlers(): void {
           const worktree = db.getWorktree(worktreeId)
           if (worktree) {
             try {
-              const { stopAndRemoveSandboxAsync, removeSandboxWrapper } = await import(
-                '../services/docker-sandbox-service'
-              )
-              const safeBranch = worktree.branch_name.replace(/[^a-zA-Z0-9_.-]/g, '-')
-              const sandboxName = `hive-${safeBranch}`
+              const {
+                stopAndRemoveSandboxAsync,
+                getSandboxNameForWorktree,
+                removeSandboxWrapper
+              } = await import('../services/docker-sandbox-service')
+              const sandboxName = getSandboxNameForWorktree(worktreeId)
               await stopAndRemoveSandboxAsync(sandboxName)
               removeSandboxWrapper(sandboxName)
             } catch (cleanupError) {

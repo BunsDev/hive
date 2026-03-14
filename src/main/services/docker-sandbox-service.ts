@@ -417,19 +417,29 @@ export async function stopAndRemoveSandboxAsync(sandboxName: string): Promise<vo
   }
   try {
     await execFileAsync('docker', ['sandbox', 'stop', sandboxName], {
-      encoding: 'utf-8', timeout: 15000, env: process.env
+      encoding: 'utf-8',
+      timeout: 15000,
+      env: process.env
     })
     log.info('Stopped sandbox', { sandboxName })
   } catch (err) {
-    log.warn('Failed to stop sandbox (may already be stopped)', { sandboxName, error: String(err) })
+    log.warn('Failed to stop sandbox (may already be stopped)', {
+      sandboxName,
+      error: String(err)
+    })
   }
   try {
     await execFileAsync('docker', ['sandbox', 'rm', sandboxName], {
-      encoding: 'utf-8', timeout: 15000, env: process.env
+      encoding: 'utf-8',
+      timeout: 15000,
+      env: process.env
     })
     log.info('Removed sandbox', { sandboxName })
   } catch (err) {
-    log.warn('Failed to remove sandbox (may already be removed)', { sandboxName, error: String(err) })
+    log.warn('Failed to remove sandbox (may already be removed)', {
+      sandboxName,
+      error: String(err)
+    })
   }
 }
 
