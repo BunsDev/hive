@@ -1,6 +1,6 @@
 {
   "name": "hive",
-  "version": "1.0.59",
+  "version": "1.0.61",
   "description": "Native macOS app for managing git worktrees and AI-powered coding sessions",
   "main": "./out/main/index.js",
   "author": "morapelker",
@@ -59,7 +59,7 @@
     "sandbox:test-sdk": "NODE_ENV=development node --experimental-strip-types --experimental-transform-types --experimental-specifier-resolution=node scripts/test-claude-sdk-docker-sandbox.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.62",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.76",
     "@electron-toolkit/utils": "^3.0.0",
     "@monaco-editor/react": "^4.7.0",
     "@opencode-ai/sdk": "^1.1.51",
