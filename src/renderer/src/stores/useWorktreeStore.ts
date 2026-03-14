@@ -95,6 +95,8 @@ interface WorktreeState {
   selectedWorktreeId: string | null
   creatingForProjectId: string | null
   archivingWorktreeIds: Set<string>
+  sandboxDeletionStatus: 'idle' | 'deleting' | 'success' | 'error'
+  sandboxDeletionError: string | null
 
   // Actions
   loadWorktrees: (projectId: string) => Promise<void>
@@ -163,6 +165,8 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   selectedWorktreeId: null,
   creatingForProjectId: null,
   archivingWorktreeIds: new Set(),
+  sandboxDeletionStatus: 'idle',
+  sandboxDeletionError: null,
 
   // Load worktrees for a project from database
   loadWorktrees: async (projectId: string) => {
@@ -283,7 +287,31 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
         }
       }
 
-      // 3. Proceed with archive
+      // 3. Pre-delete sandbox if this worktree has one enabled
+      if (worktree?.docker_sandbox) {
+        const existsCheck = await window.worktreeOps.sandboxExists({ worktreeId })
+        if (existsCheck.success && existsCheck.exists) {
+          set({ sandboxDeletionStatus: 'deleting', sandboxDeletionError: null })
+          try {
+            const delResult = await window.worktreeOps.stopAndRemoveSandbox({ worktreeId })
+            if (!delResult.success) {
+              set({
+                sandboxDeletionStatus: 'error',
+                sandboxDeletionError: delResult.error || 'Failed'
+              })
+            } else {
+              set({ sandboxDeletionStatus: 'success' })
+            }
+          } catch {
+            // Non-critical: proceed with archive
+          }
+          // Let dialog show briefly, then reset
+          await new Promise((resolve) => setTimeout(resolve, 1200))
+          set({ sandboxDeletionStatus: 'idle', sandboxDeletionError: null })
+        }
+      }
+
+      // 4. Proceed with archive
       const result = await window.worktreeOps.delete({
         worktreeId,
         worktreePath,
@@ -296,7 +324,7 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
         return { success: false, error: result.error || 'Failed to archive worktree' }
       }
 
-      // 4. Clean up any connections referencing this worktree
+      // 5. Clean up any connections referencing this worktree
       try {
         await window.connectionOps.removeWorktreeFromAll(worktreeId)
         // Reload connections to reflect the change
@@ -365,6 +393,30 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
     }))
 
     try {
+      // Pre-delete sandbox if this worktree has one enabled
+      if (worktree?.docker_sandbox) {
+        const existsCheck = await window.worktreeOps.sandboxExists({ worktreeId })
+        if (existsCheck.success && existsCheck.exists) {
+          set({ sandboxDeletionStatus: 'deleting', sandboxDeletionError: null })
+          try {
+            const delResult = await window.worktreeOps.stopAndRemoveSandbox({ worktreeId })
+            if (!delResult.success) {
+              set({
+                sandboxDeletionStatus: 'error',
+                sandboxDeletionError: delResult.error || 'Failed'
+              })
+            } else {
+              set({ sandboxDeletionStatus: 'success' })
+            }
+          } catch {
+            // Non-critical: proceed with archive
+          }
+          // Let dialog show briefly, then reset
+          await new Promise((resolve) => setTimeout(resolve, 1200))
+          set({ sandboxDeletionStatus: 'idle', sandboxDeletionError: null })
+        }
+      }
+
       const result = await window.worktreeOps.delete({
         worktreeId,
         worktreePath,
