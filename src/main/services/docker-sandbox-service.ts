@@ -9,6 +9,14 @@ import { createLogger } from './logger.ts'
 
 const log = createLogger({ component: 'DockerSandboxService' })
 
+/**
+ * Escape a string for safe inclusion in a single-quoted shell argument.
+ * Wraps the value in single quotes and escapes any interior single quotes.
+ */
+function shellEscape(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'"
+}
+
 function validateSandboxName(name: string): void {
   if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
     throw new Error(
@@ -178,7 +186,7 @@ function createJsonLineFilter(): Transform {
 export function createSandboxSpawner(
   options: SandboxSpawnerOptions
 ): (spawnOptions: SpawnOptions) => SpawnedProcess {
-  const { sandboxName, token } = options
+  const { sandboxName, worktreePath, token } = options
   validateSandboxName(sandboxName)
 
   return (spawnOptions: SpawnOptions): SpawnedProcess => {
@@ -220,7 +228,11 @@ export function createSandboxSpawner(
     if (token) {
       dockerArgs.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${token}`)
     }
-    dockerArgs.push(sandboxName, 'claude', ...sandboxArgs)
+    // Run via sh -c so we can cd into the worktree first.
+    // Docker sandbox doesn't guarantee the working directory matches the
+    // mounted workspace, so Claude would otherwise start in the wrong dir.
+    const shellCmd = `cd ${shellEscape(worktreePath)} && exec claude ${sandboxArgs.map(shellEscape).join(' ')}`
+    dockerArgs.push(sandboxName, 'sh', '-c', shellCmd)
 
     log.info('Spawning Docker sandbox process', {
       sandboxName,
