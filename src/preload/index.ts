@@ -130,6 +130,14 @@ const db = {
       ipcRenderer.invoke('db:session:getActiveByConnection', connectionId)
   },
 
+  sessionMessage: {
+    list: (sessionId: string) => ipcRenderer.invoke('db:sessionMessage:list', sessionId)
+  },
+
+  sessionActivity: {
+    list: (sessionId: string) => ipcRenderer.invoke('db:sessionActivity:list', sessionId)
+  },
+
   // Spaces
   space: {
     list: () => ipcRenderer.invoke('db:space:list'),

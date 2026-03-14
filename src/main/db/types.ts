@@ -166,6 +166,58 @@ export interface SessionMessageUpsertByOpenCode {
   created_at?: string
 }
 
+export type SessionActivityKind =
+  | 'tool.started'
+  | 'tool.updated'
+  | 'tool.completed'
+  | 'tool.failed'
+  | 'approval.requested'
+  | 'approval.resolved'
+  | 'user-input.requested'
+  | 'user-input.resolved'
+  | 'task.started'
+  | 'task.updated'
+  | 'task.completed'
+  | 'plan.ready'
+  | 'plan.resolved'
+  | 'session.error'
+  | 'session.retry'
+  | 'session.info'
+
+export type SessionActivityTone = 'tool' | 'approval' | 'info' | 'error'
+
+export interface SessionActivity {
+  id: string
+  session_id: string
+  agent_session_id: string | null
+  thread_id: string | null
+  turn_id: string | null
+  item_id: string | null
+  request_id: string | null
+  kind: SessionActivityKind
+  tone: SessionActivityTone
+  summary: string
+  payload_json: string | null
+  sequence: number | null
+  created_at: string
+}
+
+export interface SessionActivityCreate {
+  id?: string
+  session_id: string
+  agent_session_id?: string | null
+  thread_id?: string | null
+  turn_id?: string | null
+  item_id?: string | null
+  request_id?: string | null
+  kind: SessionActivityKind
+  tone: SessionActivityTone
+  summary: string
+  payload_json?: string | null
+  sequence?: number | null
+  created_at?: string
+}
+
 export interface Setting {
   key: string
   value: string
