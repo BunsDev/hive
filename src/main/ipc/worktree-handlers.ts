@@ -278,12 +278,12 @@ export function registerWorktreeHandlers(): void {
           const worktree = db.getWorktree(worktreeId)
           if (worktree) {
             try {
-              const { stopAndRemoveSandbox, removeSandboxWrapper } = await import(
+              const { stopAndRemoveSandboxAsync, removeSandboxWrapper } = await import(
                 '../services/docker-sandbox-service'
               )
               const safeBranch = worktree.branch_name.replace(/[^a-zA-Z0-9_.-]/g, '-')
               const sandboxName = `hive-${safeBranch}`
-              stopAndRemoveSandbox(sandboxName)
+              await stopAndRemoveSandboxAsync(sandboxName)
               removeSandboxWrapper(sandboxName)
             } catch (cleanupError) {
               log.warn('Sandbox cleanup failed during disable', {
@@ -344,8 +344,8 @@ export function registerWorktreeHandlers(): void {
   // Stop and remove a Docker sandbox
   ipcMain.handle('worktree:stopSandbox', async (_event, name: string) => {
     try {
-      const { stopAndRemoveSandbox } = await import('../services/docker-sandbox-service')
-      stopAndRemoveSandbox(name)
+      const { stopAndRemoveSandboxAsync } = await import('../services/docker-sandbox-service')
+      await stopAndRemoveSandboxAsync(name)
       return { success: true }
     } catch (error) {
       log.error('Failed to stop Docker sandbox', {
@@ -548,6 +548,22 @@ export function registerWorktreeHandlers(): void {
       return {
         success: false,
         exists: false,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
+
+  ipcMain.handle('sandbox:stopAndRemove', async (_event, params: { worktreeId: string }) => {
+    try {
+      const { stopAndRemoveSandboxAsync, getSandboxNameForWorktree } = await import(
+        '../services/docker-sandbox-service'
+      )
+      const sandboxName = getSandboxNameForWorktree(params.worktreeId)
+      await stopAndRemoveSandboxAsync(sandboxName)
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
         error: error instanceof Error ? error.message : String(error)
       }
     }

@@ -414,6 +414,9 @@ declare global {
       sandboxExists: (
         params: { worktreeId: string }
       ) => Promise<{ success: boolean; exists: boolean; error?: string }>
+      stopAndRemoveSandbox: (
+        params: { worktreeId: string }
+      ) => Promise<{ success: boolean; error?: string }>
     }
     systemOps: {
       getLogDir: () => Promise<string>

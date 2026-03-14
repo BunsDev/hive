@@ -209,10 +209,10 @@ export async function deleteWorktreeOp(
     releasePort(params.worktreePath)
 
     try {
-      const { getSandboxNameForWorktree, stopAndRemoveSandbox } = await import(
+      const { getSandboxNameForWorktree, stopAndRemoveSandboxAsync } = await import(
         './docker-sandbox-service'
       )
-      stopAndRemoveSandbox(getSandboxNameForWorktree(params.worktreeId))
+      await stopAndRemoveSandboxAsync(getSandboxNameForWorktree(params.worktreeId))
     } catch (error) {
       log.warn('Failed to remove sandbox during worktree archive', {
         worktreeId: params.worktreeId,

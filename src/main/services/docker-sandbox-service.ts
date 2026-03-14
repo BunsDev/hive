@@ -1,13 +1,15 @@
-import { execFileSync, spawn } from 'child_process'
+import { execFile, execFileSync, spawn } from 'child_process'
 import { existsSync, unlinkSync } from 'fs'
 import { EventEmitter } from 'events'
 import { homedir } from 'os'
 import { join } from 'path'
 import { Transform } from 'stream'
 import type { SpawnOptions, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
+import { promisify } from 'util'
 import { createLogger } from './logger.ts'
 
 const log = createLogger({ component: 'DockerSandboxService' })
+const execFileAsync = promisify(execFile)
 
 /**
  * Escape a string for safe inclusion in a single-quoted shell argument.
@@ -95,6 +97,23 @@ export function sandboxExists(sandboxName: string): boolean {
   }
 }
 
+/**
+ * Async version of sandboxExists — checks if a named sandbox already exists without blocking.
+ */
+export async function sandboxExistsAsync(sandboxName: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('docker', ['sandbox', 'ls'], {
+      encoding: 'utf-8',
+      timeout: 10000,
+      env: process.env
+    })
+    const output = stdout.trim()
+    return output.split('\n').some((line) => line.trim().startsWith(sandboxName + ' '))
+  } catch {
+    return false
+  }
+}
+
 export function ensureSandboxExists(options: {
   sandboxName: string
   worktreePath: string
@@ -110,6 +129,37 @@ export function ensureSandboxExists(options: {
   }
 
   execFileSync(
+    'docker',
+    ['sandbox', 'create', '--name', sandboxName, agent, worktreePath, `${projectGitPath}:ro`],
+    {
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: process.env
+    }
+  )
+
+  log.info('Created sandbox', { sandboxName, worktreePath, agent })
+  return { created: true }
+}
+
+/**
+ * Async version of ensureSandboxExists — creates a sandbox without blocking the main process.
+ */
+export async function ensureSandboxExistsAsync(options: {
+  sandboxName: string
+  worktreePath: string
+  projectGitPath: string
+  agent?: SandboxAgent
+}): Promise<{ created: boolean }> {
+  const { sandboxName, worktreePath, projectGitPath, agent = 'claude' } = options
+  validateSandboxName(sandboxName)
+
+  if (await sandboxExistsAsync(sandboxName)) {
+    log.info('Reusing existing sandbox', { sandboxName })
+    return { created: false }
+  }
+
+  await execFileAsync(
     'docker',
     ['sandbox', 'create', '--name', sandboxName, agent, worktreePath, `${projectGitPath}:ro`],
     {
@@ -353,6 +403,33 @@ export function stopAndRemoveSandbox(sandboxName: string): void {
       sandboxName,
       error: String(err)
     })
+  }
+}
+
+/**
+ * Async version of stopAndRemoveSandbox — stops and removes a Docker Sandbox without blocking.
+ * Best-effort: errors on each step are logged but not thrown.
+ */
+export async function stopAndRemoveSandboxAsync(sandboxName: string): Promise<void> {
+  validateSandboxName(sandboxName)
+  if (!(await sandboxExistsAsync(sandboxName))) {
+    return
+  }
+  try {
+    await execFileAsync('docker', ['sandbox', 'stop', sandboxName], {
+      encoding: 'utf-8', timeout: 15000, env: process.env
+    })
+    log.info('Stopped sandbox', { sandboxName })
+  } catch (err) {
+    log.warn('Failed to stop sandbox (may already be stopped)', { sandboxName, error: String(err) })
+  }
+  try {
+    await execFileAsync('docker', ['sandbox', 'rm', sandboxName], {
+      encoding: 'utf-8', timeout: 15000, env: process.env
+    })
+    log.info('Removed sandbox', { sandboxName })
+  } catch (err) {
+    log.warn('Failed to remove sandbox (may already be removed)', { sandboxName, error: String(err) })
   }
 }
 

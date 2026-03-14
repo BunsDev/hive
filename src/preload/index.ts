@@ -418,7 +418,12 @@ const worktreeOps = {
   sandboxExists: (
     params: { worktreeId: string }
   ): Promise<{ success: boolean; exists: boolean; error?: string }> =>
-    ipcRenderer.invoke('sandbox:exists', params)
+    ipcRenderer.invoke('sandbox:exists', params),
+
+  stopAndRemoveSandbox: (
+    params: { worktreeId: string }
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('sandbox:stopAndRemove', params)
 }
 
 // System operations API
