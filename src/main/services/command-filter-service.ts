@@ -34,11 +34,12 @@ export class CommandFilterService {
    *
    * SECURITY MODEL (Defense in Depth):
    * - Newlines at the top level are split during parsing (prevents injection attacks)
-   * - After parsing, ANY part containing a newline is defensively re-split (lines 219-249)
-   * - This means even newlines inside quotes or $(...) trigger re-splitting
-   * - This aggressive approach prevents bypassing the security check via complex nesting
+   * - After parsing, parts with newlines are evaluated:
+   *   • If part contains $(...) or heredoc markers (<<): kept intact (legitimate multi-line)
+   *   • If part is a simple string with newlines: split for security (suspicious)
+   * - This balanced approach allows legitimate heredocs while preventing injection
    * - Parts with newlines won't match allowlist patterns (no normalization in matchesAnyPattern)
-   * - Result: Commands with multi-line strings will be broken up and require individual approval
+   * - Result: Heredocs in command substitutions work; simple multi-line strings are split
    *
    * SUPPORTED FEATURES:
    * ✅ Operators: && || | ; (splits on these at top level)
@@ -51,15 +52,15 @@ export class CommandFilterService {
    * ✅ Mixed contexts: "text $(cmd | cmd) text" && other
    *
    * KNOWN LIMITATIONS:
-   * ⚠️ Top-level heredocs (not inside $() or quotes) are split line-by-line.
-   *    This is acceptable because:
-   *    1. Top-level heredocs are rare in command approval contexts
-   *    2. Heredocs inside $() or quotes (the common case) work correctly
-   *    3. The security fallback handles edge cases defensively
+   * ⚠️ Simple multi-line strings without command substitutions are split line-by-line
+   *    Example: echo "line1\nline2" → splits into 2 parts (security feature)
+   *    Workaround: Use command substitution for legitimate multi-line content
    *
    * ⚠️ Backtick command substitutions `cmd` are NOT supported (use $() instead)
    * ⚠️ Process substitutions <(cmd) and >(cmd) are NOT supported
    * ⚠️ Brace expansion {a,b,c} is treated as literal text
+   *
+   * ✅ Heredocs inside command substitutions ARE supported (e.g., git commit -m "$(cat <<EOF...)")
    */
   splitBashChain(command: string): string[] {
     const parts: string[] = []
@@ -236,39 +237,40 @@ export class CommandFilterService {
     // Add the last part
     if (current.trim()) parts.push(current.trim())
 
-    // Security validation: If any part contains a newline after parsing, it means either:
-    // 1. A parser limitation with complex nested structures, OR
-    // 2. An injection attempt that bypassed quote/substitution tracking
-    // Either way, we need to handle it defensively by splitting those parts further.
-    const validatedParts = parts.filter((part) => {
+    // Security validation: If any part contains a newline after parsing, determine if it's:
+    // 1. Legitimate: heredoc inside command substitution (e.g., git commit -m "$(cat <<'EOF'\n...\nEOF\n)")
+    // 2. Suspicious: simple string with newlines (possible injection attempt)
+    //
+    // Strategy: If the part contains command substitution markers ($(...)), trust the parser.
+    // The parser correctly preserves newlines inside $() for heredocs and multi-line commands.
+    // Only re-split parts that have newlines WITHOUT command substitutions (more suspicious).
+    const result: string[] = []
+    for (const part of parts) {
       if (/\n/.test(part)) {
-        log.warn('CommandFilter: part contains newline after parsing - parser limitation or injection attempt', {
-          part: part.substring(0, 100)
-        })
-        return false
-      }
-      return true
-    })
+        // Part contains newline(s) - check if it's a command substitution
+        const hasCommandSubstitution = /\$\([^)]*\)/s.test(part)
+        const hasHeredoc = /<<['"]?\w+['"]?/.test(part)
 
-    // If we found parts with newlines, re-split ONLY those parts (not the entire command)
-    // to avoid breaking correctly-parsed parts with quoted arguments
-    if (validatedParts.length < parts.length) {
-      const result: string[] = []
-      for (const part of parts) {
-        if (/\n/.test(part)) {
-          // This part has a newline - split it for safety
-          // Note: This may split legitimate multi-line quoted strings, but that's acceptable
-          // because parts shouldn't have newlines unless the parser failed
-          result.push(...part.split('\n').map((s) => s.trim()).filter(Boolean))
-        } else {
-          // This part was parsed correctly - keep it intact
+        if (hasCommandSubstitution || hasHeredoc) {
+          // Legitimate: heredoc or multi-line command inside $() - keep intact
+          log.debug('CommandFilter: part contains newline but has command substitution/heredoc - keeping intact', {
+            part: part.substring(0, 100)
+          })
           result.push(part)
+        } else {
+          // Suspicious: newline without command substitution context - split for safety
+          log.warn('CommandFilter: part contains newline without command substitution - splitting for security', {
+            part: part.substring(0, 100)
+          })
+          result.push(...part.split('\n').map((s) => s.trim()).filter(Boolean))
         }
+      } else {
+        // No newlines - keep as-is
+        result.push(part)
       }
-      return result
     }
 
-    return parts
+    return result
   }
 
   /**

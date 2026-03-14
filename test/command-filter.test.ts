@@ -149,14 +149,23 @@ Two fixes: a && b
 Changes: c || d; e
 EOF
 )"`
-      // NOTE: This is a known limitation - heredocs with newlines are split line-by-line
-      // by the defensive fallback, even when inside $() and quotes
-      // This is acceptable for security (see documentation in command-filter-service.ts)
+      // Heredocs inside command substitutions $() should be kept intact (not split on newlines)
+      // This is the correct behavior - heredocs are legitimate multi-line constructs
       const result = service.splitBashChain(cmd)
-      expect(result.length).toBeGreaterThan(1) // Will be split into multiple parts
-      // Should not split on operators inside the heredoc (those are preserved in their parts)
-      expect(result.some(part => part.includes('&&'))).toBe(true)
-      expect(result.some(part => part.includes('||'))).toBe(true)
+      expect(result).toEqual([cmd]) // Should be ONE command, not split
+    })
+
+    test('real-world: git commit with heredoc (user reported issue)', () => {
+      // This is the exact scenario reported: should NOT ask for approval for each line
+      const cmd = `git commit -m "$(cat <<'EOF'
+Fix HealthCheckPolicy port rendering
+Problem: - Previous fix used | int filter
+Solution: - Apply | int filter
+EOF
+)"`
+      const result = service.splitBashChain(cmd)
+      expect(result).toEqual([cmd]) // Must be ONE command
+      expect(result.length).toBe(1) // NOT split into multiple parts
     })
 
     test('handles chained commands with heredocs', () => {
@@ -187,10 +196,9 @@ EOF
       expect(service.splitBashChain(cmd2)).toEqual(['echo "safe"', 'malicious command'])
     })
 
-    test('defensively re-splits parts with newlines even inside quotes (security)', () => {
-      // NOTE: The defensive fallback re-splits ANY part containing newlines,
-      // even if they were inside quotes. This is intentional for security.
-      // See "Security validation" comment in splitBashChain implementation.
+    test('defensively splits simple quoted strings with newlines (security)', () => {
+      // Simple strings with newlines (no command substitutions) are split for security
+      // This prevents hiding malicious commands in quoted strings
       const cmd = 'echo "line1\nline2"'
       expect(service.splitBashChain(cmd)).toEqual(['echo "line1', 'line2"'])
 
@@ -208,10 +216,11 @@ EOF
       expect(service.splitBashChain(cmd2)).toEqual([cmd2])
     })
 
-    test('defensively re-splits parts with newlines even inside command substitutions (security)', () => {
-      // Defensive fallback re-splits parts with newlines for security
+    test('preserves newlines inside command substitutions (legitimate multi-line commands)', () => {
+      // Command substitutions with newlines are legitimate - keep intact
+      // This allows heredocs and multi-line commands inside $()
       const cmd = 'echo $(cmd1\ncmd2)'
-      expect(service.splitBashChain(cmd)).toEqual(['echo $(cmd1', 'cmd2)'])
+      expect(service.splitBashChain(cmd)).toEqual([cmd])
     })
 
     test('splits on operators outside command substitutions', () => {

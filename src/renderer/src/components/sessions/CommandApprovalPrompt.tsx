@@ -343,20 +343,29 @@ function splitBashForDisplay(
 
   if (current.trim()) parts.push({ cmd: current.trim() })
 
-  // Defensive fallback: if any part still contains a newline after parsing, it indicates
-  // a parser limitation or edge case. Split those parts on newlines to match backend behavior.
-  // This ensures the UI displays the same sub-command breakdown that the backend evaluates.
+  // Defensive fallback: if any part contains newlines, check if it's legitimate
+  // (command substitution or heredoc) or suspicious (simple string with newlines).
+  // This must match the backend logic in command-filter-service.ts for consistency.
   const result: typeof parts = []
   for (const part of parts) {
     if (/\n/.test(part.cmd)) {
-      // Split this part on newlines for display
-      const lines = part.cmd.split('\n').map(s => s.trim()).filter(Boolean)
-      lines.forEach((line, i) => {
-        result.push({
-          cmd: line,
-          separator: i < lines.length - 1 ? 'newline' : part.separator
+      // Part contains newline(s) - check if it's a command substitution or heredoc
+      const hasCommandSubstitution = /\$\([^)]*\)/s.test(part.cmd)
+      const hasHeredoc = /<<['"]?\w+['"]?/.test(part.cmd)
+
+      if (hasCommandSubstitution || hasHeredoc) {
+        // Legitimate: heredoc or multi-line command inside $() - keep intact
+        result.push(part)
+      } else {
+        // Suspicious: newline without command substitution context - split for display
+        const lines = part.cmd.split('\n').map(s => s.trim()).filter(Boolean)
+        lines.forEach((line, i) => {
+          result.push({
+            cmd: line,
+            separator: i < lines.length - 1 ? 'newline' : part.separator
+          })
         })
-      })
+      }
     } else {
       result.push(part)
     }
