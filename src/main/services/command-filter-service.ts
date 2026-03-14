@@ -22,10 +22,6 @@ function hasUnescapedCommandSubstitution(str: string): boolean {
   return false
 }
 
-// Regex pattern for detecting heredoc markers
-// More permissive to catch various heredoc formats
-const HEREDOC_PATTERN = /<<-?['"]?\w+['"]?/
-
 export interface CommandFilterSettings {
   allowlist: string[]
   blocklist: string[]
@@ -279,30 +275,41 @@ export class CommandFilterService {
 
     // Security validation: If any part contains a newline after parsing, determine if it's:
     // 1. Legitimate: heredoc inside command substitution (e.g., git commit -m "$(cat <<'EOF'\n...\nEOF\n)")
-    // 2. Suspicious: simple string with newlines (possible injection attempt)
+    // 2. Suspicious: simple string with newlines (possible injection attempt) OR top-level heredoc
     //
-    // Strategy: Check for UNESCAPED command substitution markers $() or heredoc markers <<
-    // - Escaped \$( is NOT a command substitution and should be split
-    // - Unescaped $( indicates legitimate multi-line context
+    // Strategy: ONLY trust newlines inside command substitutions $()
+    // - Check for UNESCAPED $( to indicate legitimate multi-line context
+    // - Everything else (including top-level heredocs) is split for security
     //
     // CRITICAL: Must properly handle escape sequences to avoid false positives
     // - \$( is escaped, NOT a command substitution → SPLIT
     // - \\$( has escaped backslash, so $( is NOT escaped → KEEP INTACT
+    //
+    // SECURITY: We do NOT check for heredoc markers (<<) separately because:
+    // 1. Top-level heredocs are not supported in the security model (see KNOWN LIMITATIONS)
+    // 2. Checking for << creates false positives: echo "text <<MARKER\nmalicious\nMARKER"
+    //    would match the pattern even though << is inside quotes and not a real heredoc
+    // 3. Legitimate heredocs should be inside command substitutions: $(cat <<EOF...)
     const result: string[] = []
     for (const part of parts) {
       if (/\n/.test(part)) {
-        // Part contains newline(s) - check if it's a command substitution or heredoc
+        // Part contains newline(s) - check if it's inside a command substitution
         const hasCommandSub = hasUnescapedCommandSubstitution(part)
-        const hasHeredoc = HEREDOC_PATTERN.test(part)
 
-        if (hasCommandSub || hasHeredoc) {
-          // Legitimate: heredoc or multi-line command inside $() - keep intact
-          log.debug('CommandFilter: part contains newline but has command substitution/heredoc - keeping intact', {
+        if (hasCommandSub) {
+          // Legitimate: multi-line command inside $() - keep intact
+          // This covers heredocs in command substitutions: git commit -m "$(cat <<EOF\n...\nEOF)"
+          log.debug('CommandFilter: part contains newline but has command substitution - keeping intact', {
             part: part.substring(0, 100)
           })
           result.push(part)
         } else {
           // Suspicious: newline without command substitution context - split for safety
+          // This includes:
+          // - Injection attempts: echo "safe\nmalicious"
+          // - Top-level heredocs: cat <<EOF\n...\nEOF (not supported, see docs)
+          // - Quoted strings with << markers: echo "<<MARKER\nmalicious" (false heredocs)
+          //
           // Note: This will split even if newline is inside quotes, creating fragments with
           // dangling quotes like ['echo "line1', 'line2"']. This is acceptable because:
           // 1. Such fragments won't match allowlist patterns (security goal achieved)
@@ -432,7 +439,7 @@ export class CommandFilterService {
    * This allows heredocs and multi-line commands inside $() to match wildcard patterns.
    *
    * Strategy:
-   * - If command contains UNESCAPED $(...) or heredoc markers: collapse ALL newlines to spaces
+   * - If command contains UNESCAPED $(...): collapse ALL newlines to spaces
    * - Otherwise: leave as-is (suspicious newlines won't match patterns)
    *
    * IMPORTANT: This is an intentional over-normalization for simplicity and security.
@@ -445,12 +452,15 @@ export class CommandFilterService {
    *
    * Alternative would be complex parsing to normalize only inside $(), but the security
    * benefit is minimal since splitBashChain already provides the primary defense.
+   *
+   * SECURITY: We do NOT check for heredoc markers (<<) separately to avoid false positives
+   * on quoted strings containing << (e.g., echo "text <<MARKER\nmalicious"). Only command
+   * substitutions $() indicate legitimate multi-line content.
    */
   private normalizeCommandForMatching(command: string): string {
     const hasCommandSub = hasUnescapedCommandSubstitution(command)
-    const hasHeredoc = HEREDOC_PATTERN.test(command)
 
-    if (hasCommandSub || hasHeredoc) {
+    if (hasCommandSub) {
       // Legitimate multi-line command - collapse newlines for pattern matching
       return command.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
     }

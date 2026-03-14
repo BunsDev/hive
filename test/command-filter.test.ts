@@ -458,6 +458,47 @@ EOF
       // Should be 'allow' because \\\\$( has escaped backslash, leaving $( as valid substitution
       expect(result).toBe('allow')
     })
+
+    test('SECURITY: quoted string with <<MARKER and newline does NOT bypass split', () => {
+      const settings = {
+        allowlist: ['bash: echo *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Attack attempt: echo with quoted string containing fake heredoc marker
+      // This should be SPLIT because << is inside quotes, not a real heredoc
+      const cmd = `echo "safe text <<MARKER
+rm -rf /
+MARKER"`
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'ask' because the newline causes splitting,
+      // and fragments don't match the allowlist pattern
+      // This prevents the attack from being auto-approved
+      expect(result).toBe('ask')
+    })
+
+    test('SECURITY: top-level heredoc is split (not supported)', () => {
+      const settings = {
+        allowlist: ['bash: cat *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Top-level heredoc (not inside command substitution)
+      const cmd = `cat <<EOF
+line1
+line2
+EOF`
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'ask' because top-level heredocs are not supported
+      // The command is split into parts, and they won't all match
+      expect(result).toBe('ask')
+    })
   })
 
   describe('nested parentheses handling', () => {

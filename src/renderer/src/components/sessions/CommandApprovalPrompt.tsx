@@ -41,9 +41,6 @@ function hasUnescapedCommandSubstitution(str: string): boolean {
   return false
 }
 
-// Regex pattern for detecting heredoc markers
-const HEREDOC_PATTERN = /<<-?['"]?\w+['"]?/
-
 interface CommandApprovalPromptProps {
   request: CommandApprovalRequest
   onReply: (
@@ -376,21 +373,25 @@ function splitBashForDisplay(
   if (current.trim()) parts.push({ cmd: current.trim() })
 
   // Defensive fallback: if any part contains newlines, check if it's legitimate
-  // (command substitution or heredoc) or suspicious (simple string with newlines).
+  // (inside command substitution) or suspicious (simple string with newlines).
   // This must match the backend logic in command-filter-service.ts for consistency.
   //
   // CRITICAL: Must check for UNESCAPED command substitutions to avoid false positives
   // - \$( is escaped, NOT a command substitution → SPLIT
   // - \\$( has escaped backslash, so $( is NOT escaped → KEEP INTACT
+  //
+  // SECURITY: We do NOT check for heredoc markers (<<) separately because:
+  // 1. Creates false positives on quoted strings: echo "text <<MARKER\nmalicious"
+  // 2. Only command substitutions indicate legitimate multi-line content
+  // 3. Top-level heredocs are not supported in the security model
   const result: typeof parts = []
   for (const part of parts) {
     if (/\n/.test(part.cmd)) {
-      // Part contains newline(s) - check if it's a command substitution or heredoc
+      // Part contains newline(s) - check if it's inside a command substitution
       const hasCommandSub = hasUnescapedCommandSubstitution(part.cmd)
-      const hasHeredoc = HEREDOC_PATTERN.test(part.cmd)
 
-      if (hasCommandSub || hasHeredoc) {
-        // Legitimate: heredoc or multi-line command inside $() - keep intact
+      if (hasCommandSub) {
+        // Legitimate: multi-line command inside $() - keep intact for display
         result.push(part)
       } else {
         // Suspicious: newline without command substitution context - split for display
