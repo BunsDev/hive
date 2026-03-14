@@ -19,13 +19,14 @@ import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
 const CLAUDE_EFFORT_VARIANTS = { low: {}, medium: {}, high: {} }
+const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, max: {} }
 
 const CLAUDE_MODELS = [
   {
     id: 'opus',
     name: 'Opus 4.6',
-    limit: { context: 200000, output: 32000 },
-    variants: CLAUDE_EFFORT_VARIANTS,
+    limit: { context: 1000000, output: 32000 },
+    variants: CLAUDE_OPUS_EFFORT_VARIANTS,
     defaultVariant: 'high'
   },
   {
