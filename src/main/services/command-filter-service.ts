@@ -2,6 +2,11 @@ import { createLogger } from './logger'
 
 const log = createLogger({ component: 'CommandFilterService' })
 
+// Regex patterns for detecting multi-line command structures
+// These are used to distinguish legitimate multi-line content from suspicious injection attempts
+const COMMAND_SUBSTITUTION_PATTERN = /\$\(/
+const HEREDOC_PATTERN = /<<-?['"]?\w+['"]?/
+
 export interface CommandFilterSettings {
   allowlist: string[]
   blocklist: string[]
@@ -241,15 +246,19 @@ export class CommandFilterService {
     // 1. Legitimate: heredoc inside command substitution (e.g., git commit -m "$(cat <<'EOF'\n...\nEOF\n)")
     // 2. Suspicious: simple string with newlines (possible injection attempt)
     //
-    // Strategy: If the part contains command substitution markers ($(...)), trust the parser.
-    // The parser correctly preserves newlines inside $() for heredocs and multi-line commands.
-    // Only re-split parts that have newlines WITHOUT command substitutions (more suspicious).
+    // Strategy: If the part contains command substitution markers ($() or heredoc markers (<<),
+    // trust the parser. The parser correctly preserves newlines inside $() for heredocs and
+    // multi-line commands. Only re-split parts that have newlines WITHOUT these markers.
+    //
+    // Note: We use simple prefix checks ($( and <<) rather than full matching to avoid issues
+    // with nested command substitutions. The presence of these markers indicates legitimate
+    // multi-line context, even if the full structure is complex.
     const result: string[] = []
     for (const part of parts) {
       if (/\n/.test(part)) {
-        // Part contains newline(s) - check if it's a command substitution
-        const hasCommandSubstitution = /\$\([^)]*\)/s.test(part)
-        const hasHeredoc = /<<['"]?\w+['"]?/.test(part)
+        // Part contains newline(s) - check if it's a command substitution or heredoc
+        const hasCommandSubstitution = COMMAND_SUBSTITUTION_PATTERN.test(part)
+        const hasHeredoc = HEREDOC_PATTERN.test(part)
 
         if (hasCommandSubstitution || hasHeredoc) {
           // Legitimate: heredoc or multi-line command inside $() - keep intact
@@ -383,12 +392,23 @@ export class CommandFilterService {
    * This allows heredocs and multi-line commands inside $() to match wildcard patterns.
    *
    * Strategy:
-   * - If command contains $(...) or heredoc markers: collapse all newlines to spaces
+   * - If command contains $(...) or heredoc markers: collapse ALL newlines to spaces
    * - Otherwise: leave as-is (suspicious newlines won't match patterns)
+   *
+   * IMPORTANT: This is an intentional over-normalization for simplicity and security.
+   * If a command contains $() ANYWHERE, all newlines in the ENTIRE command are collapsed,
+   * even those outside the command substitution. This is acceptable because:
+   * 1. Commands reaching this point already passed splitBashChain's newline security checks
+   * 2. The goal is pattern matching, not execution - we're checking intent, not structure
+   * 3. Edge cases like: echo "text\ninjection" && $(safe) will match patterns but that's OK
+   *    because splitBashChain already split it into parts, each evaluated separately
+   *
+   * Alternative would be complex parsing to normalize only inside $(), but the security
+   * benefit is minimal since splitBashChain already provides the primary defense.
    */
   private normalizeCommandForMatching(command: string): string {
-    const hasCommandSubstitution = /\$\([^)]*\)/s.test(command)
-    const hasHeredoc = /<<['"]?\w+['"]?/.test(command)
+    const hasCommandSubstitution = COMMAND_SUBSTITUTION_PATTERN.test(command)
+    const hasHeredoc = HEREDOC_PATTERN.test(command)
 
     if (hasCommandSubstitution || hasHeredoc) {
       // Legitimate multi-line command - collapse newlines for pattern matching

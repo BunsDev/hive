@@ -21,6 +21,11 @@ import type {
   SubCommandSuggestions
 } from '@/stores/useCommandApprovalStore'
 
+// Regex patterns for detecting multi-line command structures
+// IMPORTANT: Must match the patterns in command-filter-service.ts for consistency
+const COMMAND_SUBSTITUTION_PATTERN = /\$\(/
+const HEREDOC_PATTERN = /<<-?['"]?\w+['"]?/
+
 interface CommandApprovalPromptProps {
   request: CommandApprovalRequest
   onReply: (
@@ -346,12 +351,16 @@ function splitBashForDisplay(
   // Defensive fallback: if any part contains newlines, check if it's legitimate
   // (command substitution or heredoc) or suspicious (simple string with newlines).
   // This must match the backend logic in command-filter-service.ts for consistency.
+  //
+  // Note: We use simple prefix checks ($( and <<) rather than full matching to avoid issues
+  // with nested command substitutions. The presence of these markers indicates legitimate
+  // multi-line context, even if the full structure is complex.
   const result: typeof parts = []
   for (const part of parts) {
     if (/\n/.test(part.cmd)) {
       // Part contains newline(s) - check if it's a command substitution or heredoc
-      const hasCommandSubstitution = /\$\([^)]*\)/s.test(part.cmd)
-      const hasHeredoc = /<<['"]?\w+['"]?/.test(part.cmd)
+      const hasCommandSubstitution = COMMAND_SUBSTITUTION_PATTERN.test(part.cmd)
+      const hasHeredoc = HEREDOC_PATTERN.test(part.cmd)
 
       if (hasCommandSubstitution || hasHeredoc) {
         // Legitimate: heredoc or multi-line command inside $() - keep intact

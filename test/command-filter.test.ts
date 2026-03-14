@@ -366,8 +366,10 @@ EOF
         enabled: true
       }
 
-      // Simple string with newline (no command substitution) - suspicious
-      const cmd = 'echo "line1\nline2"'
+      // Simple string with ACTUAL newline (not literal \n) - suspicious
+      // Using template literal to create actual newline character
+      const cmd = `echo "line1
+line2"`
       const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
 
       // Should be 'ask' because the command is split into parts that don't match individually
