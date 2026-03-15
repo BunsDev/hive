@@ -551,4 +551,54 @@ EOF`
       expect(result).toEqual(['(cd dir && make)', 'exit 1'])
     })
   })
+
+  describe('KNOWN LIMITATIONS: Parser edge cases with security implications', () => {
+    test.skip('LIMITATION: Single quotes inside double-quoted command substitution not handled', () => {
+      // SECURITY ISSUE: This is a known parser limitation that could allow bypass
+      // See KNOWN LIMITATIONS in command-filter-service.ts for details
+      //
+      // In bash, this command has a literal ')' inside single quotes:
+      // "$(echo ')' && safe)"
+      // The single quotes create a quote context INSIDE the command substitution,
+      // independent of the outer double quotes.
+      //
+      // Our parser has GLOBAL quote tracking, so it doesn't toggle inSingleQuote
+      // when inside double quotes (line 108: if (char === "'" && !inDoubleQuote))
+      // This means the ')' is incorrectly treated as closing the command substitution.
+      const _cmd = '"$(echo \')\' && rm -rf /)"'
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _result = service.splitBashChain(_cmd)
+
+      // EXPECTED: Should be ONE command (the && is inside the command substitution)
+      // ACTUAL: May incorrectly split at && because parser thinks ')' closed the $(
+      // expect(_result).toEqual([_cmd])
+
+      // For now, we document this as a known limitation
+      console.warn('KNOWN LIMITATION: Single quotes inside double-quoted substitutions may cause incorrect parsing')
+    })
+
+    test.skip('LIMITATION: Complex quote nesting in command substitutions', () => {
+      // SECURITY ISSUE: Nested quote contexts in command substitutions not fully supported
+      // Our parser tracks quotes globally, not per-nesting-level
+      const _cmd = 'echo "$(cat <<EOF | grep "pattern"\\nline2\\nEOF)"'
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _result = service.splitBashChain(_cmd)
+
+      // This kind of complex nesting may not parse correctly
+      console.warn('KNOWN LIMITATION: Complex quote nesting in substitutions may cause incorrect parsing')
+    })
+
+    test('DOCUMENTED: Top-level heredocs are not supported (intentional)', () => {
+      // This is INTENTIONALLY not supported per the security model
+      // Top-level heredocs are split line-by-line (see KNOWN LIMITATIONS)
+      const cmd = `cat <<EOF
+line1
+line2
+EOF`
+      const result = service.splitBashChain(cmd)
+
+      // Splits into multiple parts (expected behavior)
+      expect(result.length).toBeGreaterThan(1)
+    })
+  })
 })

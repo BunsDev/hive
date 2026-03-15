@@ -76,11 +76,39 @@ export class CommandFilterService {
    *    Example: echo "line1\nline2" → splits into 2 parts (security feature)
    *    Workaround: Use command substitution for legitimate multi-line content
    *
+   * ⚠️ SECURITY LIMITATION: Quote tracking is global, not per-nesting-level
+   *    Example: "$(echo ')' && cmd)" may parse incorrectly
+   *    Issue: Single quotes inside double-quoted command substitutions don't toggle quote mode
+   *    Impact: Parser may incorrectly identify ) as closing $( when it's actually inside single quotes
+   *    Workaround: Avoid single quotes inside double-quoted command substitutions
+   *    Status: Requires per-level quote tracking (complex architectural change)
+   *
+   * ⚠️ SECURITY LIMITATION: Complex nested quote contexts not fully supported
+   *    Example: echo "$(cat <<EOF | grep "pattern"\nEOF)" may parse incorrectly
+   *    Issue: Parser tracks one global quote state, not per-substitution-level
+   *    Impact: Deeply nested quote contexts may confuse the parser
+   *    Workaround: Keep command substitutions simple; avoid nesting quotes inside substitutions
+   *    Status: Requires architectural redesign to track quote state per nesting level
+   *
    * ⚠️ Backtick command substitutions `cmd` are NOT supported (use $() instead)
    * ⚠️ Process substitutions <(cmd) and >(cmd) are NOT supported
    * ⚠️ Brace expansion {a,b,c} is treated as literal text
    *
    * ✅ Heredocs inside command substitutions ARE supported (e.g., git commit -m "$(cat <<EOF...)")
+   *
+   * SECURITY IMPACT OF LIMITATIONS:
+   * The quote-tracking limitations could potentially allow crafted commands to bypass
+   * splitting in unintended ways. However, the defense-in-depth model provides multiple
+   * layers of protection:
+   * 1. Allowlist patterns must still match for auto-approval
+   * 2. User can manually review and approve/deny each command
+   * 3. Most real-world commands don't use complex nested quote contexts
+   * 4. Simple injection attempts (echo "safe\nmalicious") are still caught
+   *
+   * RECOMMENDATION: For high-security environments, consider:
+   * - Using more specific allowlist patterns (avoid broad wildcards)
+   * - Manually reviewing commands with complex nesting
+   * - Avoiding single quotes inside double-quoted command substitutions in trusted commands
    */
   splitBashChain(command: string): string[] {
     const parts: string[] = []

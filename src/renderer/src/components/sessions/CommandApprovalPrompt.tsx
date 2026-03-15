@@ -87,7 +87,8 @@ function getToolDisplay(toolName: string): {
 /**
  * Pattern picker for a bash && chain: shows one radio group per sub-command.
  * Each sub-command has its own set of progressively broader patterns to choose from.
- * Default selection is the second option (one wildcard step up from exact).
+ * Default selection is the LAST pattern (most specific wildcard) to avoid overly broad permissions.
+ * Patterns are ordered broad→specific: ["exact", "cmd *", "cmd sub *", "cmd sub args *"]
  */
 function SubCommandPatternPicker({
   subCommandPatterns,
