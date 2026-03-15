@@ -899,6 +899,68 @@ EOF
       // Should be 'allow' - both sub-commands have heredoc markers
       expect(result).toBe('allow')
     })
+
+    test('ATTACK BLOCKED: Fake heredoc inside quotes inside command substitution', () => {
+      const settings = {
+        allowlist: ['bash: echo *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // CRITICAL ATTACK VECTOR: "$(echo "<<FAKE\nmalicious")"
+      // The <<FAKE is inside double quotes inside the command substitution
+      // Previous bug: inCommandSubstitution check didn't require !inDoubleQuote
+      // This would incorrectly detect <<FAKE as a heredoc and bypass the security gate
+      const cmd = `echo "$(echo "<<FAKE
+rm -rf /")"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // MUST return 'ask' - <<FAKE is inside quotes, not a real heredoc
+      expect(result).toBe('ask')
+    })
+
+    test('ATTACK BLOCKED: Fake heredoc with bare parens causing premature stack pop', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // CRITICAL BUG: Missing parenBalance tracking
+      // "$(cmd (inner) <<FAKE\nmalicious)" would prematurely pop at first )
+      // Then <<FAKE would be checked with parenStack.length === 0 (false negative)
+      const cmd = `git commit -m "$(echo (test) "<<FAKE
+rm -rf /")"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // MUST return 'ask' - <<FAKE is inside quotes, not a real heredoc
+      // With parenBalance fix, we correctly track that we're still inside $(...)
+      expect(result).toBe('ask')
+    })
+
+    test('LEGITIMATE: Real heredoc with bare parens before it', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Real heredoc after bare parens - parenBalance should not affect this
+      const cmd = `git commit -m "$(echo (test) && cat <<EOF
+Fix bug
+EOF
+)"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'allow' - real heredoc marker detected
+      expect(result).toBe('allow')
+    })
   })
 
   describe('CRITICAL SECURITY: hasUnescapedCommandSubstitution quote-blindness fix', () => {

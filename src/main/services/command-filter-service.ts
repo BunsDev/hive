@@ -60,10 +60,16 @@ function hasUnescapedCommandSubstitution(str: string): boolean {
  * - Single quotes: '<<EOF' inside single quotes is NOT a heredoc marker (literal text)
  * - Double quotes: "<<EOF" inside double quotes is NOT a heredoc marker (literal text)
  * - Command substitutions: "$(cat <<EOF...)" - heredoc IS valid inside $() even when $() is in quotes
+ * - Nested parens: "$(cmd (inner) && cat <<EOF)" - heredoc IS valid after bare parens
  *
  * CRITICAL SECURITY: This function must track quote state to avoid false positives.
  * Example: git commit -m "text <<NOTE\nmalicious" - the << is literal, NOT a heredoc
  * But: git commit -m "$(cat <<EOF\ntext\nEOF)" - the << IS a real heredoc (inside command substitution)
+ *
+ * CRITICAL SECURITY BUG FIX: Heredocs work when NOT inside quotes IN THE CURRENT CONTEXT.
+ * Attack: "$(echo "<<FAKE\nmalicious")" - the <<FAKE is inside double quotes INSIDE the substitution
+ * Key insight: When entering $(, quotes RESET - it's a fresh execution context.
+ * So "$(cat <<EOF)" - the outer " doesn't count, but $(echo "<<EOF") - the inner " does count.
  *
  * Heredoc marker pattern: << followed by optional -, optional quotes, and word characters
  * Examples: <<EOF, <<-EOF, <<'EOF', <<"EOF"
@@ -72,7 +78,7 @@ function hasUnescapedHeredocMarker(str: string): boolean {
   let i = 0
   let inSingleQuote = false
   let inDoubleQuote = false
-  const parenStack: Array<{ wasInDoubleQuote: boolean }> = []
+  const parenStack: Array<{ wasInDoubleQuote: boolean; parenBalance: number; quoteDepth: number }> = []
 
   while (i < str.length - 1) {
     const char = str[i]
@@ -86,27 +92,51 @@ function hasUnescapedHeredocMarker(str: string): boolean {
     }
 
     // Track command substitutions $(...)
-    // This is important because heredocs work inside $() even when $() is inside quotes
+    // CRITICAL: Save current quote depth, then reset to 0 (fresh context)
     if (char === '$' && next === '(' && !inSingleQuote) {
-      parenStack.push({ wasInDoubleQuote: inDoubleQuote })
+      parenStack.push({
+        wasInDoubleQuote: inDoubleQuote,
+        parenBalance: 0,
+        quoteDepth: (inSingleQuote ? 1 : 0) + (inDoubleQuote ? 1 : 0)
+      })
+      // Reset quote state - command substitution is a fresh context
+      inSingleQuote = false
+      inDoubleQuote = false
       i += 2
       continue
     }
 
-    // Track closing ) of command substitution
+    // Track bare subshells/parens inside command substitutions: $(cmd (inner))
+    // Must track these to avoid prematurely closing the command substitution
+    if (char === '(' && parenStack.length > 0 && !inSingleQuote) {
+      parenStack[parenStack.length - 1].parenBalance++
+      i++
+      continue
+    }
+
+    // Track closing ) - could be command substitution or bare paren
     if (char === ')' && parenStack.length > 0 && !inSingleQuote) {
       const topEntry = parenStack[parenStack.length - 1]
-      if (inDoubleQuote === topEntry.wasInDoubleQuote) {
-        parenStack.pop()
+      // Check if we're in the same quote context as when we opened this $(...)
+      // Since we reset quotes on entry, we should be at depth 0 (no quotes) when closing
+      if (inSingleQuote === false && inDoubleQuote === false) {
+        if (topEntry.parenBalance > 0) {
+          // This ) closes a bare subshell inside the command substitution
+          topEntry.parenBalance--
+        } else {
+          // This ) closes the command substitution itself
+          // Restore the quote state from before we entered
+          inDoubleQuote = topEntry.wasInDoubleQuote
+          parenStack.pop()
+        }
       }
       i++
       continue
     }
 
     // Track single quotes
-    // Inside command substitutions, single quotes work normally even when $() is in double quotes
-    const insideCommandSubstitution = parenStack.length > 0
-    if (char === "'" && (!inDoubleQuote || insideCommandSubstitution)) {
+    // Inside command substitutions, quotes work normally (we reset on entry)
+    if (char === "'" && !inDoubleQuote) {
       inSingleQuote = !inSingleQuote
       i++
       continue
@@ -120,15 +150,17 @@ function hasUnescapedHeredocMarker(str: string): boolean {
     }
 
     // Check for << heredoc marker
-    // Heredocs work in two contexts:
-    // 1. Outside all quotes (top level): cat <<EOF
-    // 2. Inside command substitutions: "$(cat <<EOF...)" - even when $() is in quotes
-    const atTopLevel = !inSingleQuote && !inDoubleQuote && parenStack.length === 0
-    const inCommandSubstitution = parenStack.length > 0 && !inSingleQuote
-
-    if (char === '<' && next === '<' && (atTopLevel || inCommandSubstitution)) {
-      // Found << in a context where heredocs work
-      // Check if it's followed by heredoc marker pattern: -?['"]?\w+
+    // Heredocs work when NOT inside quotes in the CURRENT context
+    // Examples with current context tracking:
+    // - cat <<EOF → not in quotes → heredoc ✓
+    // - "cat <<EOF" → in double quotes → literal ✗
+    // - $(cat <<EOF) → in substitution, not in quotes → heredoc ✓
+    // - "$(cat <<EOF)" → in substitution (quotes reset on entry), not in quotes → heredoc ✓
+    // - $(echo "<<EOF") → in substitution, IN double quotes → literal ✗
+    // - "$(echo "<<EOF")" → in substitution (quotes reset), IN double quotes → literal ✗
+    if (char === '<' && next === '<' && !inSingleQuote && !inDoubleQuote) {
+      // Found << outside all quotes in current context - check if it's a heredoc marker
+      // Pattern: <<-?['"]?\w+
       let j = i + 2
 
       // Optional dash (<<- variant for tab-stripping)
