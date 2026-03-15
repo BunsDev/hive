@@ -675,10 +675,28 @@ export class CommandFilterService {
       }
 
       // Blocklist wins: if ANY sub-command is blocked, block the entire chain
+      // CRITICAL SECURITY: Check blocklist against BOTH raw and normalized strings
+      //
+      // Raw check: Catches dangerous commands on separate lines before normalization
+      // Example: $(cat <<EOF\nFix\nEOF\nrm -rf /) → raw has "rm -rf" visible
+      //
+      // Normalized check: Catches broader patterns that should apply to all forms
+      // Example: User wants to block all git commands, including heredoc variants
+      //
+      // Without raw check: Embedded commands after ; in heredocs bypass blocklist
+      // Attack: git commit -m "$(cat <<EOF\nFix\nEOF; rm -rf /)" → normalized hides rm -rf
       for (const sub of subCommands) {
         const subStr = `bash: ${sub}`
+
+        // Check raw string (without normalization)
+        if (this.matchesAnyPatternRaw(subStr, settings.blocklist)) {
+          log.info('CommandFilter: BLOCKED by blocklist (raw match)', { subStr: subStr.substring(0, 100) })
+          return 'block'
+        }
+
+        // Check normalized string (for broader patterns)
         if (this.matchesAnyPattern(subStr, settings.blocklist)) {
-          log.info('CommandFilter: BLOCKED by blocklist', { subStr })
+          log.info('CommandFilter: BLOCKED by blocklist (normalized match)', { subStr: subStr.substring(0, 100) })
           return 'block'
         }
       }
@@ -737,17 +755,76 @@ export class CommandFilterService {
   }
 
   /**
-   * Check if a command matches any pattern in a list
+   * Check if a command matches any pattern in a list (with normalization)
    *
    * SECURITY: Normalizes legitimate heredocs (inside command substitutions) before matching
    * so they can match wildcard patterns. Suspicious newlines (outside command substitutions)
    * remain as-is and won't match patterns.
+   *
+   * Use this for allowlist checks where heredocs should match patterns.
    */
   matchesAnyPattern(command: string, patterns: string[]): boolean {
     // Normalize heredocs for pattern matching: collapse newlines inside command substitutions
     // This allows "git commit -m "$(cat <<EOF...)" to match "bash: git commit *"
     const normalized = this.normalizeCommandForMatching(command)
     return patterns.some((pattern) => this.matchPattern(normalized, pattern))
+  }
+
+  /**
+   * Check if a command matches any pattern in a list (checking embedded commands)
+   *
+   * SECURITY: Checks for blocklist patterns embedded inside heredoc-containing commands.
+   * This is critical for catching dangerous commands after heredocs with ; or newline separators.
+   *
+   * Example: git commit -m "$(cat <<EOF\nFix\nEOF; rm -rf /)"
+   * - Normal pattern matching sees: "bash: git commit -m ..." → no match for "bash: rm -rf *"
+   * - After normalization, "; rm -rf /" is hidden in the collapsed string
+   * - Embedded matching splits on ; and \n, finds "rm -rf /" → matches "bash: rm -rf *"
+   *
+   * Strategy:
+   * 1. If command has $(...) and newlines, split on ; and \n to find fragments
+   * 2. Check each fragment against blocklist patterns
+   * 3. If any embedded command matches blocklist → block
+   *
+   * Limitation: This is a heuristic that splits on ALL ; and \n, not just command separators.
+   * Semicolons inside quotes may create false fragments, but that's acceptable for security.
+   *
+   * Use this for blocklist checks where embedded commands must be visible.
+   */
+  private matchesAnyPatternRaw(command: string, patterns: string[]): boolean {
+    // First check the whole command (normal matching)
+    if (patterns.some((pattern) => this.matchPattern(command, pattern))) {
+      return true
+    }
+
+    // Then check for embedded commands if this is a multi-line command with $()
+    // This catches dangerous commands after heredocs: $(cat <<EOF\nEOF; rm -rf /)
+    if (hasUnescapedCommandSubstitution(command) && /\n/.test(command)) {
+      // Split on potential command separators (;, newlines) to extract fragments
+      // This is a security heuristic - we split even if the ; is inside quotes
+      const fragments = command.split(/[;\n]/).map(f => f.trim()).filter(Boolean)
+
+      // Check each fragment against blocklist patterns
+      for (const fragment of fragments) {
+        // Skip empty or very short fragments (likely just whitespace or quotes)
+        if (fragment.length < 3) continue
+
+        // Format as bash command for pattern matching
+        // Remove leading/trailing quotes and bash: prefix if present
+        const cleaned = fragment.replace(/^["']|["']$/g, '').replace(/^bash:\s*/, '')
+        const fragmentCmd = `bash: ${cleaned}`
+
+        if (patterns.some((pattern) => this.matchPattern(fragmentCmd, pattern))) {
+          log.info('CommandFilter: embedded command fragment matches blocklist', {
+            fragment: cleaned.substring(0, 100),
+            fullCommand: command.substring(0, 100)
+          })
+          return true
+        }
+      }
+    }
+
+    return false
   }
 
   /**

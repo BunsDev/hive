@@ -1012,6 +1012,94 @@ EOF
     })
   })
 
+  describe('CRITICAL SECURITY: Blocklist bypass via heredoc normalization', () => {
+    test('ATTACK BLOCKED: Dangerous command embedded after heredoc with semicolon', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: ['bash: rm -rf *'],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // CRITICAL ATTACK VECTOR: $(cat <<EOF\nFix\nEOF; rm -rf /)
+      // The heredoc has a legitimate marker (<<EOF), so security gate passes
+      // After normalization: "git commit -m "$(cat <<EOF Fix EOF; rm -rf /)"
+      // Without raw blocklist check, "rm -rf" is hidden in the collapsed string
+      // Allowlist would match "bash: git commit *" → AUTO-APPROVED
+      //
+      // With raw blocklist check:
+      // Raw string has "; rm -rf /" that could match "bash: rm -rf *"
+      const cmd = `git commit -m "$(cat <<'EOF'
+Fix bug
+EOF
+; rm -rf /important)"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // MUST return 'block' - blocklist should catch the embedded rm -rf
+      expect(result).toBe('block')
+    })
+
+    test('ATTACK BLOCKED: Dangerous command embedded after heredoc with newline', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: ['bash: dd if=*'],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Similar attack with newline separator instead of semicolon
+      const cmd = `git commit -m "$(cat <<'EOF'
+Fix bug
+EOF
+dd if=/dev/zero of=/dev/sda)"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // MUST return 'block' - blocklist should catch the embedded dd command
+      expect(result).toBe('block')
+    })
+
+    test('LEGITIMATE: Blocklist normalized check still works', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: ['bash: git commit -m "test"'],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Legitimate command that should be caught by normalized blocklist
+      const cmd = `git commit -m "test"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'block' - normalized blocklist check matches
+      expect(result).toBe('block')
+    })
+
+    test('DOCUMENTED LIMITATION: Semicolon inside heredoc content is safe', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: ['bash: rm -rf *'],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Legitimate case: semicolon inside heredoc CONTENT, not after it
+      const cmd = `git commit -m "$(cat <<'EOF'
+Fix bug; refactor code
+No dangerous commands here
+EOF
+)"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'allow' - semicolon is just text inside heredoc content
+      // Not a command separator
+      expect(result).toBe('allow')
+    })
+  })
+
   describe('CRITICAL SECURITY: hasUnescapedCommandSubstitution quote-blindness fix', () => {
     test('SECURITY BYPASS: $( inside single quotes is literal, NOT a command substitution', () => {
       const settings = {
