@@ -601,4 +601,40 @@ EOF`
       expect(result.length).toBeGreaterThan(1)
     })
   })
+
+  describe('CRITICAL BUG: Bare parens inside double-quoted command substitutions', () => {
+    test('bare parens inside double-quoted command substitution should be tracked', () => {
+      // BUG: parenBalance only increments when !inDoubleQuote
+      // This means "$(cmd (sub))" doesn't track the (sub) parens
+      const cmd = '"$(cmd (sub))"'
+      const result = service.splitBashChain(cmd)
+
+      // Should be ONE command - the (sub) is inside the command substitution
+      expect(result).toEqual([cmd])
+      expect(result.length).toBe(1)
+    })
+
+    test('complex: bare parens in double-quoted substitution with operators', () => {
+      const cmd = '"$(cmd1 (a) && cmd2 (b))"'
+      const result = service.splitBashChain(cmd)
+
+      // Should be ONE command - operators are inside the command substitution
+      expect(result).toEqual([cmd])
+    })
+
+    test('mixed quotes: bare parens in various contexts', () => {
+      // Outside quotes: (cmd)
+      // Inside single quotes: '(literal)'
+      // Inside double quotes with substitution: "$(cmd (sub))"
+      const cmd = '(echo test) && echo \'(literal)\' && echo "$(date (format))"'
+      const result = service.splitBashChain(cmd)
+
+      // Should split on && but preserve all paren contexts
+      expect(result).toEqual([
+        '(echo test)',
+        'echo \'(literal)\'',
+        'echo "$(date (format))"'
+      ])
+    })
+  })
 })

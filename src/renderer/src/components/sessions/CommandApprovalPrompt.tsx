@@ -288,14 +288,16 @@ function splitBashForDisplay(
     }
 
     // Track bare subshells: (cmd1 && cmd2)
-    // If at top level, track with subshellDepth; if inside command substitution, track with parenBalance
-    if (char === '(' && !inSingleQuote && !inDoubleQuote) {
+    // CRITICAL: Must track ( inside command substitutions even when inside double quotes
+    // Example: "$(cmd (sub))" - the (sub) parens MUST be tracked even though inDoubleQuote=true
+    // Must match backend logic in command-filter-service.ts
+    if (char === '(' && !inSingleQuote) {
       if (!lastCharWasUnescapedDollar) {
         if (parenStack.length > 0) {
           // Inside command substitution: increment paren balance
           parenStack[parenStack.length - 1].parenBalance++
-        } else {
-          // Top level: increment subshell depth
+        } else if (!inDoubleQuote) {
+          // Top level AND not in double quotes: increment subshell depth
           subshellDepth++
         }
       }

@@ -198,17 +198,23 @@ export class CommandFilterService {
       }
 
       // Track bare subshells: (cmd1 && cmd2)
+      // CRITICAL: Must track ( inside command substitutions even when inside double quotes
+      // Example: "$(cmd (sub))" - the (sub) parens MUST be tracked even though inDoubleQuote=true
+      //
       // If we're at top level (not in command substitution), track with subshellDepth
       // If we're inside command substitution, track with parenBalance in the stack entry
-      if (char === '(' && !inSingleQuote && !inDoubleQuote) {
+      if (char === '(' && !inSingleQuote) {
         // Check if previous token was an unescaped $ (making this a command substitution)
         // We track this with a flag rather than checking raw prevChar to handle escaped \$
         if (!lastCharWasUnescapedDollar) {
           if (parenStack.length > 0) {
             // Inside command substitution: increment paren balance
+            // This handles "$(cmd (sub))" where the (sub) parens are inside double quotes
             parenStack[parenStack.length - 1].parenBalance++
-          } else {
-            // Top level: increment subshell depth
+          } else if (!inDoubleQuote) {
+            // Top level AND not in double quotes: increment subshell depth
+            // We check !inDoubleQuote here because top-level bare subshells like (cmd1 && cmd2)
+            // should not be tracked if they're inside double quotes (which would be syntax error in bash)
             subshellDepth++
           }
         }
