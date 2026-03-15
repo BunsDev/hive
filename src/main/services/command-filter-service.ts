@@ -76,12 +76,10 @@ export class CommandFilterService {
    *    Example: echo "line1\nline2" → splits into 2 parts (security feature)
    *    Workaround: Use command substitution for legitimate multi-line content
    *
-   * ⚠️ SECURITY LIMITATION: Quote tracking is global, not per-nesting-level
-   *    Example: "$(echo ')' && cmd)" may parse incorrectly
-   *    Issue: Single quotes inside double-quoted command substitutions don't toggle quote mode
-   *    Impact: Parser may incorrectly identify ) as closing $( when it's actually inside single quotes
-   *    Workaround: Avoid single quotes inside double-quoted command substitutions
-   *    Status: Requires per-level quote tracking (complex architectural change)
+   * ✅ FIXED: Single quotes inside double-quoted command substitutions ARE supported
+   *    Example: "$(echo ')' && cmd)" - single quotes work correctly inside $(...)
+   *    The parser recognizes that inside command substitutions, single quotes work normally
+   *    even when the command substitution itself is inside double quotes
    *
    * ⚠️ SECURITY LIMITATION: Complex nested quote contexts not fully supported
    *    Example: echo "$(cat <<EOF | grep "pattern"\nEOF)" may parse incorrectly
@@ -149,7 +147,13 @@ export class CommandFilterService {
       }
 
       // Handle quotes
-      if (char === "'" && !inDoubleQuote) {
+      // CRITICAL FIX: Single quotes inside command substitutions work even when the $() is inside double quotes
+      // Example: "$(echo ')')" - the single quotes ARE respected inside the $(...)
+      // So we toggle single quotes when:
+      // 1. We're not in double quotes (normal case), OR
+      // 2. We're inside a command substitution (parenStack.length > 0)
+      const insideCommandSubstitution = parenStack.length > 0
+      if (char === "'" && (!inDoubleQuote || insideCommandSubstitution)) {
         inSingleQuote = !inSingleQuote
         current += char
         lastCharWasUnescapedDollar = false

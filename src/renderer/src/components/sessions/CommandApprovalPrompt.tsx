@@ -243,7 +243,10 @@ function splitBashForDisplay(
     }
 
     // Handle quotes
-    if (char === "'" && !inDoubleQuote) {
+    // CRITICAL FIX: Single quotes inside command substitutions work even when the $() is inside double quotes
+    // Must match backend logic in command-filter-service.ts
+    const insideCommandSubstitution = parenStack.length > 0
+    if (char === "'" && (!inDoubleQuote || insideCommandSubstitution)) {
       inSingleQuote = !inSingleQuote
       current += char
       lastCharWasUnescapedDollar = false

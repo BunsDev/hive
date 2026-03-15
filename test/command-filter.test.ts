@@ -552,34 +552,46 @@ EOF`
     })
   })
 
-  describe('KNOWN LIMITATIONS: Parser edge cases with security implications', () => {
-    test.skip('LIMITATION: Single quotes inside double-quoted command substitution not handled', () => {
-      // SECURITY ISSUE: This is a known parser limitation that could allow bypass
-      // See KNOWN LIMITATIONS in command-filter-service.ts for details
-      //
+  describe('FIXED: Single quotes inside double-quoted command substitutions', () => {
+    test('single quotes inside double-quoted command substitution work correctly', () => {
+      // FIXED: Single quotes inside command substitutions now work correctly
       // In bash, this command has a literal ')' inside single quotes:
       // "$(echo ')' && safe)"
       // The single quotes create a quote context INSIDE the command substitution,
       // independent of the outer double quotes.
-      //
-      // Our parser has GLOBAL quote tracking, so it doesn't toggle inSingleQuote
-      // when inside double quotes (line 108: if (char === "'" && !inDoubleQuote))
-      // This means the ')' is incorrectly treated as closing the command substitution.
-      const _cmd = '"$(echo \')\' && rm -rf /)"'
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const _result = service.splitBashChain(_cmd)
+      const cmd = '"$(echo \')\' && echo safe)"'
+      const result = service.splitBashChain(cmd)
 
-      // EXPECTED: Should be ONE command (the && is inside the command substitution)
-      // ACTUAL: May incorrectly split at && because parser thinks ')' closed the $(
-      // expect(_result).toEqual([_cmd])
-
-      // For now, we document this as a known limitation
-      console.warn('KNOWN LIMITATION: Single quotes inside double-quoted substitutions may cause incorrect parsing')
+      // Should be ONE command (the && is inside the command substitution)
+      expect(result).toEqual([cmd])
+      expect(result.length).toBe(1)
     })
 
+    test('single quotes with ) inside double-quoted substitution (security test)', () => {
+      // This was the original bypass scenario - ensure it's fixed
+      const cmd = '"$(echo \')\' && rm -rf /)"'
+      const result = service.splitBashChain(cmd)
+
+      // Should NOT split at && because it's inside the command substitution
+      expect(result).toEqual([cmd])
+      expect(result.length).toBe(1)
+    })
+
+    test('complex: multiple single quotes inside double-quoted substitution', () => {
+      const cmd = '"$(echo \'(\' && echo \')\' && echo \';\' )"'
+      const result = service.splitBashChain(cmd)
+
+      // All the special chars are inside single quotes, so they should be literal
+      expect(result).toEqual([cmd])
+      expect(result.length).toBe(1)
+    })
+
+  })
+
+  describe('KNOWN LIMITATIONS: Remaining parser edge cases', () => {
     test.skip('LIMITATION: Complex quote nesting in command substitutions', () => {
-      // SECURITY ISSUE: Nested quote contexts in command substitutions not fully supported
-      // Our parser tracks quotes globally, not per-nesting-level
+      // SECURITY ISSUE: Deeply nested quote contexts may not parse correctly
+      // Example: Double quotes inside command substitution inside double quotes
       const _cmd = 'echo "$(cat <<EOF | grep "pattern"\\nline2\\nEOF)"'
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const _result = service.splitBashChain(_cmd)
