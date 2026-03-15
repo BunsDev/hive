@@ -851,6 +851,54 @@ malicious)"`
       // MUST return 'ask' - heredoc marker is inside single quotes (inside the substitution)
       expect(result).toBe('ask')
     })
+
+    test('ATTACK BLOCKED: Heredoc in one sub-command should NOT unlock another sub-command', () => {
+      const settings = {
+        allowlist: ['bash: cat *', 'bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // CRITICAL ATTACK VECTOR: Prefix malicious command with legitimate heredoc
+      // The heredoc check was originally applied to the FULL command before splitting,
+      // allowing a heredoc in ANY sub-command to unlock ALL sub-commands
+      const cmd = `cat <<EOF
+legitimate content
+EOF
+&& git commit -m "$(echo placeholder
+rm -rf /)"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // MUST return 'ask' - the second sub-command has $(...)with newlines but NO heredoc
+      // Even though the first sub-command has a legitimate heredoc, each sub-command
+      // must be checked independently to prevent cross-sub-command bypass
+      expect(result).toBe('ask')
+    })
+
+    test('LEGITIMATE: Each sub-command with heredoc is independently valid', () => {
+      const settings = {
+        allowlist: ['bash: git commit *', 'bash: echo *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Both sub-commands have heredocs - both should be allowed
+      const cmd = `git commit -m "$(cat <<EOF
+Fix bug
+EOF
+)" && echo "$(cat <<EOF
+Done
+EOF
+)"`
+
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'allow' - both sub-commands have heredoc markers
+      expect(result).toBe('allow')
+    })
   })
 
   describe('CRITICAL SECURITY: hasUnescapedCommandSubstitution quote-blindness fix', () => {

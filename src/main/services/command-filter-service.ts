@@ -583,14 +583,26 @@ export class CommandFilterService {
 
     if (tool === 'bash') {
       const command = String(input.command || '').trim()
+      const subCommands = this.splitBashChain(command)
 
-      // SECURITY: Commands with $(...)containing newlines require extra scrutiny
+      log.info('CommandFilter: evaluating bash chain', {
+        subCommands,
+        allowlistCount: settings.allowlist.length,
+        blocklistCount: settings.blocklist.length
+      })
+
+      // SECURITY: Check EACH sub-command for $(...)with newlines (injection attack vector)
       // Newlines inside command substitutions ARE command separators in bash!
       // Example attack: git commit -m "$(echo placeholder\nrm -rf /)"
       //
       // Strategy: Use heredoc marker as heuristic for legitimate multi-line content
       // - WITH heredoc (<<): Likely legitimate → allow pattern matching to proceed
       // - WITHOUT heredoc: Likely injection attempt → require manual approval
+      //
+      // CRITICAL: This check must be applied PER sub-command, not on the full command string.
+      // Otherwise, a heredoc in ANY sub-command would unlock normalization for ALL sub-commands:
+      //   Attack: cat <<EOF\ntext\nEOF && git commit -m "$(echo foo\nrm -rf /)"
+      //   The heredoc in the first sub-command would incorrectly pass the gate for the second.
       //
       // This is a heuristic, not perfect:
       // - Can be bypassed: $(cat <<EOF\ntext\nEOF; rm -rf /)
@@ -599,31 +611,25 @@ export class CommandFilterService {
       //
       // CRITICAL: Must use quote-aware heredoc detection to avoid false positives
       // from quoted strings like: git commit -m "text <<NOTE\nmalicious"
-      if (hasUnescapedCommandSubstitution(command) && /\n/.test(command)) {
-        const hasHeredocMarker = hasUnescapedHeredocMarker(command)
+      for (const sub of subCommands) {
+        if (hasUnescapedCommandSubstitution(sub) && /\n/.test(sub)) {
+          const hasHeredocMarker = hasUnescapedHeredocMarker(sub)
 
-        if (!hasHeredocMarker) {
-          // No heredoc marker - newlines are likely command separators
-          // Require manual approval for security
-          log.info('CommandFilter: command has newlines in $(...) without heredoc markers, requiring manual approval', {
-            command: command.substring(0, 100)
+          if (!hasHeredocMarker) {
+            // No heredoc marker in THIS sub-command - newlines are likely command separators
+            // Require manual approval for security
+            log.info('CommandFilter: sub-command has newlines in $(...) without heredoc markers, requiring manual approval', {
+              subCommand: sub.substring(0, 100)
+            })
+            return 'ask'
+          }
+          // Has heredoc marker in this sub-command - assume legitimate multi-line content
+          // Continue to pattern matching below
+          log.debug('CommandFilter: sub-command has newlines in $(...) with heredoc markers, allowing pattern matching', {
+            subCommand: sub.substring(0, 100)
           })
-          return 'ask'
         }
-        // Has heredoc marker - assume legitimate multi-line content
-        // Continue to pattern matching below
-        log.debug('CommandFilter: command has newlines in $(...) with heredoc markers, allowing pattern matching', {
-          command: command.substring(0, 100)
-        })
       }
-
-      const subCommands = this.splitBashChain(command)
-
-      log.info('CommandFilter: evaluating bash chain', {
-        subCommands,
-        allowlistCount: settings.allowlist.length,
-        blocklistCount: settings.blocklist.length
-      })
 
       // Blocklist wins: if ANY sub-command is blocked, block the entire chain
       for (const sub of subCommands) {
