@@ -172,6 +172,36 @@ export class CommandFilterService {
    * - Pattern "bash: git commit *" WILL match multi-line commit messages in $(...)
    * - The user sees multi-line content, but pattern matching sees collapsed version
    * - This is a trade-off for simplicity and security (see normalizeCommandForMatching)
+   *
+   * CRITICAL SECURITY - Multi-Line Commands in $(…):
+   * ⚠️ Commands with $(…) containing newlines use a heredoc heuristic for security
+   *
+   * Newlines inside $(…) are COMMAND SEPARATORS in bash, not just formatting:
+   *   ATTACK: git commit -m "$(echo placeholder\nrm -rf /)"
+   *   Result: Runs BOTH "echo placeholder" AND "rm -rf /"
+   *
+   * Protection Strategy (Heredoc Heuristic):
+   *   ✅ WITH heredoc marker (<<): Assumes legitimate → allows pattern matching
+   *      Example: git commit -m "$(cat <<'EOF'\ntext\nEOF)"
+   *
+   *   ❌ WITHOUT heredoc marker: Treats as suspicious → requires manual approval
+   *      Example: git commit -m "$(echo test\nmalicious)" → user must approve
+   *
+   * Known Limitation (Defense-in-Depth):
+   *   This heuristic CAN be bypassed with: $(cat <<EOF\ntext\nEOF; rm -rf /)
+   *   BUT: Attack still requires matching allowlist pattern
+   *
+   *   Mitigation:
+   *   - Use specific patterns: "bash: git commit *" (not "bash: *")
+   *   - Use deny rules for dangerous commands: "bash: rm -rf *"
+   *   - Review complex commands manually
+   *   - This mirrors Claude Code's philosophy (see their docs on "fragile patterns")
+   *
+   * Why This Approach:
+   *   1. Enables legitimate use cases (multi-line commit messages)
+   *   2. Blocks obvious injection attempts
+   *   3. Simple and understandable security model
+   *   4. Matches industry best practices (Claude Code uses similar strategy)
    */
   splitBashChain(command: string): string[] {
     const parts: string[] = []
@@ -453,6 +483,37 @@ export class CommandFilterService {
 
     if (tool === 'bash') {
       const command = String(input.command || '').trim()
+
+      // SECURITY: Commands with $(...)containing newlines require extra scrutiny
+      // Newlines inside command substitutions ARE command separators in bash!
+      // Example attack: git commit -m "$(echo placeholder\nrm -rf /)"
+      //
+      // Strategy: Use heredoc marker as heuristic for legitimate multi-line content
+      // - WITH heredoc (<<): Likely legitimate → allow pattern matching to proceed
+      // - WITHOUT heredoc: Likely injection attempt → require manual approval
+      //
+      // This is a heuristic, not perfect:
+      // - Can be bypassed: $(cat <<EOF\ntext\nEOF; rm -rf /)
+      // - BUT: Still requires matching allowlist pattern (defense-in-depth)
+      // - Users should use specific patterns, not broad wildcards like "bash: *"
+      if (hasUnescapedCommandSubstitution(command) && /\n/.test(command)) {
+        const hasHeredocMarker = /<<-?['"]?\w+['"]?/.test(command)
+
+        if (!hasHeredocMarker) {
+          // No heredoc marker - newlines are likely command separators
+          // Require manual approval for security
+          log.info('CommandFilter: command has newlines in $(...) without heredoc markers, requiring manual approval', {
+            command: command.substring(0, 100)
+          })
+          return 'ask'
+        }
+        // Has heredoc marker - assume legitimate multi-line content
+        // Continue to pattern matching below
+        log.debug('CommandFilter: command has newlines in $(...) with heredoc markers, allowing pattern matching', {
+          command: command.substring(0, 100)
+        })
+      }
+
       const subCommands = this.splitBashChain(command)
 
       log.info('CommandFilter: evaluating bash chain', {

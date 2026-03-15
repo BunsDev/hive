@@ -644,6 +644,126 @@ EOF
     })
   })
 
+  describe('CRITICAL SECURITY: Multi-line commands in $(...) with heredoc heuristic', () => {
+    test('ATTACK BLOCKED: $(…) with newlines but NO heredoc marker requires approval', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // ATTACK VECTOR: Newlines are command separators inside $(...)
+      // This would execute BOTH "echo placeholder" AND "rm -rf /"
+      const cmd = `git commit -m "$(echo placeholder
+rm -rf /)"`
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // MUST return 'ask' - no heredoc marker, so newlines are suspicious
+      // User must manually review and approve
+      expect(result).toBe('ask')
+    })
+
+    test('LEGITIMATE: $(…) with heredoc marker is allowed to match patterns', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Legitimate use case: heredoc inside command substitution
+      const cmd = `git commit -m "$(cat <<'EOF'
+Fix bug in parser
+
+This is a multi-line
+commit message
+EOF
+)"`
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Should be 'allow' - has heredoc marker, matches pattern
+      expect(result).toBe('allow')
+    })
+
+    test('SECURITY: Different heredoc formats are recognized', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Test various heredoc syntaxes
+      const testCases = [
+        `git commit -m "$(cat <<EOF
+text
+EOF
+)"`,  // Basic heredoc
+        `git commit -m "$(cat <<'EOF'
+text
+EOF
+)"`,  // Quoted delimiter
+        `git commit -m "$(cat <<"EOF"
+text
+EOF
+)"`,  // Double-quoted delimiter
+        `git commit -m "$(cat <<-EOF
+text
+EOF
+)"`,  // Indented heredoc (<<-)
+      ]
+
+      testCases.forEach(cmd => {
+        const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+        expect(result).toBe('allow') // All should match pattern with heredoc present
+      })
+    })
+
+    test('SECURITY: Heredoc heuristic applies even if pattern would match', () => {
+      const settings = {
+        allowlist: ['bash: *'], // Broad wildcard
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // Even with broad wildcard, no heredoc = manual approval required
+      const cmd = `echo "$(date
+ls)"`
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      expect(result).toBe('ask') // Security overrides even broad patterns
+    })
+
+    test('DOCUMENTED LIMITATION: Heredoc + operator can bypass (defense-in-depth applies)', () => {
+      const settings = {
+        allowlist: ['bash: git commit *'],
+        blocklist: [],
+        defaultBehavior: 'ask' as const,
+        enabled: true
+      }
+
+      // This is the documented bypass scenario
+      const cmd = `git commit -m "$(cat <<EOF
+text
+EOF
+; rm -rf /)"`
+      const result = service.evaluateToolUse('Bash', { command: cmd }, settings)
+
+      // Will be 'allow' because heredoc marker present
+      // BUT: Still protected by:
+      // 1. Must match allowlist pattern
+      // 2. User should use specific patterns (not "bash: *")
+      // 3. Can use deny rules for dangerous commands
+      expect(result).toBe('allow')
+
+      // This is intentional - we document this limitation clearly
+      // Users should use deny rules for protection:
+      // blocklist: ['bash: rm -rf *']
+    })
+  })
+
   describe('CRITICAL SECURITY: hasUnescapedCommandSubstitution quote-blindness fix', () => {
     test('SECURITY BYPASS: $( inside single quotes is literal, NOT a command substitution', () => {
       const settings = {
