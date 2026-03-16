@@ -2022,7 +2022,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         // to confirm, but this avoids a flash of "limit unavailable".
         if (sessionRecord?.agent_sdk === 'claude-code') {
           const claudeModels = [
-            { id: 'opus', context: 200000 },
+            { id: 'opus', context: 1000000 },
             { id: 'sonnet', context: 200000 },
             { id: 'haiku', context: 200000 }
           ]
