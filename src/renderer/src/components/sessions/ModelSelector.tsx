@@ -67,9 +67,9 @@ export function ModelSelector({ sessionId, value, onChange }: ModelSelectorProps
           variant: session.model_variant ?? undefined
         }
       : null
-  // Use controlled value if provided (non-null), otherwise fall through to session/global.
-  // value={null} means "use global fallback" — the selector displays the effective model.
-  const selectedModel = value !== undefined ? value : (sessionModel ?? globalModel)
+  // Controlled mode: non-null value overrides; null means "use global fallback."
+  // SettingsModels passes null for cleared mode defaults — display the effective model, not empty.
+  const selectedModel = (value !== undefined && value !== null) ? value : (sessionModel ?? globalModel)
   const showModelProvider = useSettingsStore((s) => s.showModelProvider)
   const favoriteModels = useSettingsStore((s) => s.favoriteModels)
   const toggleFavoriteModel = useSettingsStore((s) => s.toggleFavoriteModel)
