@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useProjectStore } from '@/stores/useProjectStore'
+import { useConnectionStore } from '@/stores/useConnectionStore'
 import {
   DEFAULT_SHORTCUTS,
   formatBinding,
@@ -85,6 +86,7 @@ export function HelpOverlay(): React.JSX.Element | null {
   const worktreesByProject = useWorktreeStore((s) => s.worktreesByProject)
   const sessionsByWorktree = useSessionStore((s) => s.sessionsByWorktree)
   const projects = useProjectStore((s) => s.projects)
+  const connections = useConnectionStore((s) => s.connections)
 
   // Build flat lookup maps for resolving names
   const worktreeNameMap = useMemo(() => {
@@ -115,8 +117,19 @@ export function HelpOverlay(): React.JSX.Element | null {
     return map
   }, [projects])
 
-  // Build worktree hint entries for display
-  const worktreeHintEntries = useMemo(() => {
+  const connectionNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const conn of connections) {
+      const projectNames =
+        [...new Set(conn.members?.map((m) => m.project_name) || [])].join(' + ')
+      const name = conn.custom_name || projectNames || conn.name || 'Connection'
+      map.set(conn.id, name)
+    }
+    return map
+  }, [connections])
+
+  // Build sidebar hint entries for display
+  const sidebarHintEntries = useMemo(() => {
     const entries: Array<{ code: string; label: string }> = []
     for (const [key, code] of hintMap.entries()) {
       const target = hintTargetMap.get(key)
@@ -128,10 +141,19 @@ export function HelpOverlay(): React.JSX.Element | null {
       } else if (target.kind === 'project') {
         const name = projectNameMap.get(target.projectId) ?? target.projectId
         entries.push({ code, label: name })
+      } else if (target.kind === 'pinned-worktree' && target.worktreeId) {
+        const name = worktreeNameMap.get(target.worktreeId) ?? target.worktreeId
+        entries.push({ code, label: `[pin] ${name}` })
+      } else if (target.kind === 'pinned-connection' && target.connectionId) {
+        const name = connectionNameMap.get(target.connectionId) ?? target.connectionId
+        entries.push({ code, label: `[pin] ${name}` })
+      } else if (target.kind === 'connection' && target.connectionId) {
+        const name = connectionNameMap.get(target.connectionId) ?? target.connectionId
+        entries.push({ code, label: name })
       }
     }
     return entries.sort((a, b) => a.code.localeCompare(b.code))
-  }, [hintMap, hintTargetMap, worktreeNameMap, projectNameMap])
+  }, [hintMap, hintTargetMap, worktreeNameMap, projectNameMap, connectionNameMap])
 
   // Build session hint entries for display
   const sessionHintEntries = useMemo(() => {
@@ -267,12 +289,12 @@ export function HelpOverlay(): React.JSX.Element | null {
               />
             </div>
 
-            {/* ---- Dynamic Worktree Hints ---- */}
-            {worktreeHintEntries.length > 0 && (
+            {/* ---- Dynamic Sidebar Hints ---- */}
+            {sidebarHintEntries.length > 0 && (
               <div>
-                <SectionTitle>Worktree Hints</SectionTitle>
+                <SectionTitle>Sidebar Hints</SectionTitle>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                  {worktreeHintEntries.map(({ code, label }) => (
+                  {sidebarHintEntries.map(({ code, label }) => (
                     <ShortcutRow
                       key={code}
                       keyContent={<KeyBadge>{code}</KeyBadge>}
