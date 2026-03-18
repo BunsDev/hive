@@ -31,11 +31,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { useConnectionStore, usePinnedStore } from '@/stores'
+import { useConnectionStore, usePinnedStore, useHintStore, useVimModeStore, useSettingsStore } from '@/stores'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
-import { useHintStore } from '@/stores/useHintStore'
-import { useVimModeStore } from '@/stores/useVimModeStore'
-import { useSettingsStore } from '@/stores/useSettingsStore'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { toast, clipboardToast } from '@/lib/toast'
 
