@@ -58,27 +58,23 @@ fi
 info "Preparing Windows native binaries for cross-build..."
 
 # Download prebuilt binaries (cached)
-TARBALL="$CACHE_DIR/win-natives.tar.gz"
+EXTRACT_DIR="$CACHE_DIR/extracted"
 
-if [[ -f "$TARBALL" ]]; then
-  ok "Using cached Windows natives ($TARBALL)"
+if [[ -d "$EXTRACT_DIR" && -n "$(ls -A "$EXTRACT_DIR" 2>/dev/null)" ]]; then
+  ok "Using cached Windows natives ($EXTRACT_DIR)"
 else
   info "Downloading Windows native binaries from GitHub..."
   mkdir -p "$CACHE_DIR"
-  gh release download "$WIN_NATIVES_TAG" \
-    -p "win-natives.tar.gz" \
-    -D "$CACHE_DIR" \
+  rm -rf "$EXTRACT_DIR"
+
+  # Download the Actions artifact from the latest successful workflow run
+  gh run download \
+    --name win-natives \
+    --dir "$EXTRACT_DIR" \
     --repo "$REPO" \
-    || fatal "Failed to download win-natives.tar.gz. Run the build-win-natives workflow first."
+    || fatal "Failed to download win-natives artifact. Run the build-win-natives workflow first."
   ok "Downloaded Windows natives"
 fi
-
-# Extract
-EXTRACT_DIR="$CACHE_DIR/extracted"
-rm -rf "$EXTRACT_DIR"
-mkdir -p "$EXTRACT_DIR"
-tar xzf "$TARBALL" -C "$EXTRACT_DIR"
-ok "Extracted Windows natives"
 
 ls -la "$EXTRACT_DIR"
 
