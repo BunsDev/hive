@@ -1196,6 +1196,27 @@ declare global {
       fetch: () => Promise<import('../shared/types/usage').UsageResult>
       fetchOpenai: () => Promise<import('../shared/types/usage').OpenAIUsageResult>
     }
+    prCommentOps: {
+      fetch: (
+        worktreeId: string,
+        worktreePath: string,
+        prNumber: number
+      ) => Promise<{
+        success: boolean
+        comments?: import('../shared/types/pr-comment').PRReviewComment[]
+        baseBranch?: string
+        error?: string
+        errorCode?: 'gh_not_found' | 'auth_failed' | 'not_github' | 'api_error'
+      }>
+      get: (
+        worktreeId: string,
+        prNumber: number
+      ) => Promise<{
+        success: boolean
+        comments?: import('../shared/types/pr-comment').PRReviewComment[]
+      }>
+      clear: (worktreeId: string) => Promise<{ success: boolean }>
+    }
     analyticsOps: {
       track: (event: string, properties?: Record<string, unknown>) => Promise<void>
       setEnabled: (enabled: boolean) => Promise<void>

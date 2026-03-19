@@ -1678,6 +1678,15 @@ const connectionOps = {
   getPinned: () => ipcRenderer.invoke('connection:getPinned')
 }
 
+const prCommentOps = {
+  fetch: (worktreeId: string, worktreePath: string, prNumber: number) =>
+    ipcRenderer.invoke('pr-comments:fetch', { worktreeId, worktreePath, prNumber }),
+  get: (worktreeId: string, prNumber: number) =>
+    ipcRenderer.invoke('pr-comments:get', { worktreeId, prNumber }),
+  clear: (worktreeId: string) =>
+    ipcRenderer.invoke('pr-comments:clear', { worktreeId })
+}
+
 const usageOps = {
   fetch: () => ipcRenderer.invoke('usage:fetch'),
   fetchOpenai: () => ipcRenderer.invoke('usage:fetchOpenai')
@@ -1710,6 +1719,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('updaterOps', updaterOps)
     contextBridge.exposeInMainWorld('connectionOps', connectionOps)
     contextBridge.exposeInMainWorld('usageOps', usageOps)
+    contextBridge.exposeInMainWorld('prCommentOps', prCommentOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
   } catch (error) {
     console.error(error)
@@ -1745,6 +1755,8 @@ if (process.contextIsolated) {
   window.connectionOps = connectionOps
   // @ts-expect-error (define in dts)
   window.usageOps = usageOps
+  // @ts-expect-error (define in dts)
+  window.prCommentOps = prCommentOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
 }

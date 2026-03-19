@@ -25,7 +25,8 @@ import {
   cleanupTerminals,
   registerUpdaterHandlers,
   registerConnectionHandlers,
-  registerUsageHandlers
+  registerUsageHandlers,
+  registerPRCommentHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -512,6 +513,7 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerConnectionHandlers()
   registerUsageHandlers()
+  registerPRCommentHandlers()
 
   // Telemetry IPC
   ipcMain.handle(
