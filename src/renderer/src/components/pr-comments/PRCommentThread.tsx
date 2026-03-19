@@ -1,24 +1,9 @@
-import { cn } from '@/lib/utils'
+import { cn, formatRelativeTime } from '@/lib/utils'
 import { usePRCommentStore } from '@/stores/usePRCommentStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { MarkdownRenderer } from '@/components/sessions/MarkdownRenderer'
 import type { PRReviewComment, PRReviewThread } from '@shared/types/pr-comment'
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}h ago`
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays < 30) return `${diffDays}d ago`
-  const diffMonths = Math.floor(diffDays / 30)
-  return `${diffMonths}mo ago`
-}
 
 interface CommentBodyProps {
   comment: PRReviewComment

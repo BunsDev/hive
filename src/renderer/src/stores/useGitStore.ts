@@ -459,7 +459,7 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
 
     // Clear cached PR comments from store and database
     usePRCommentStore.getState().clearComments(worktreeId)
-    window.prCommentOps.clear(worktreeId)
+    void window.prCommentOps.clear(worktreeId)
 
     try {
       const result = await window.db.worktree.detachPR(worktreeId)

@@ -105,14 +105,12 @@ export function PRCommentsView({ worktreeId }: PRCommentsViewProps): React.JSX.E
           <p className="text-sm text-muted-foreground">GitHub CLI not found.</p>
           <p className="text-xs text-muted-foreground/70 mt-1">
             Install from{' '}
-            <a
-              href="https://cli.github.com"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => window.systemOps.openInChrome('https://cli.github.com')}
               className="text-blue-500 hover:text-blue-400 underline"
             >
               https://cli.github.com
-            </a>
+            </button>
           </p>
         </div>
       )
