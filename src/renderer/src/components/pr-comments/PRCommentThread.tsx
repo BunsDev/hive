@@ -39,7 +39,7 @@ function CommentBody({ comment, isRoot }: CommentBodyProps): React.JSX.Element {
           {formatRelativeTime(comment.created_at)}
         </span>
         {isRoot && comment.is_outdated && (
-          <span className="text-[10px] px-1.5 py-0 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 flex-shrink-0">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 flex-shrink-0">
             Outdated
           </span>
         )}
@@ -93,8 +93,7 @@ export function PRCommentThreadView({
     if (!worktreePath) return
 
     const root = thread.rootComment
-    const compareBranch =
-      usePRCommentStore.getState().baseBranchByWorktree.get(worktreeId)
+    const compareBranch = usePRCommentStore.getState().baseBranchByWorktree.get(worktreeId)
     if (!compareBranch) return
 
     useFileViewerStore.getState().openReviewTab({
@@ -135,7 +134,9 @@ export function PRCommentThreadView({
 
       {/* Replies */}
       {thread.replies.length > 0 && (
-        <div className={cn('mt-1.5 pl-3 border-l-2 border-border space-y-2', showCheckbox && 'ml-6')}>
+        <div
+          className={cn('mt-1.5 pl-3 border-l-2 border-border space-y-2', showCheckbox && 'ml-6')}
+        >
           {thread.replies.map((reply) => (
             <CommentBody key={reply.id} comment={reply} />
           ))}

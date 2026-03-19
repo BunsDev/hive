@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { useWorktreeStore } from './useWorktreeStore'
+import { usePRCommentStore } from './usePRCommentStore'
 
 // Debounce timers for git status refresh per worktree
 const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -455,6 +456,11 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
       newMap.delete(worktreeId)
       return { attachedPR: newMap }
     })
+
+    // Clear cached PR comments from store and database
+    usePRCommentStore.getState().clearComments(worktreeId)
+    window.prCommentOps.clear(worktreeId)
+
     try {
       const result = await window.db.worktree.detachPR(worktreeId)
       if (!result.success) {

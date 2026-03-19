@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { RotateCw, ChevronRight, ChevronDown } from 'lucide-react'
+import { RotateCw, ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePRCommentStore } from '@/stores/usePRCommentStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
@@ -92,7 +92,9 @@ export function PRCommentsView({ worktreeId }: PRCommentsViewProps): React.JSX.E
         <div className="flex flex-col items-center justify-center h-full px-4 text-center">
           <p className="text-sm text-muted-foreground">GitHub authentication required.</p>
           <p className="text-xs text-muted-foreground/70 mt-1">
-            Run <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">gh auth login</code> in your terminal.
+            Run{' '}
+            <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">gh auth login</code> in
+            your terminal.
           </p>
         </div>
       )
@@ -126,11 +128,11 @@ export function PRCommentsView({ worktreeId }: PRCommentsViewProps): React.JSX.E
           disabled={isLoading}
           className={cn(
             'p-1 rounded text-muted-foreground hover:text-foreground transition-colors',
-            isLoading && 'animate-spin'
+            isLoading && 'opacity-50 cursor-not-allowed'
           )}
           aria-label="Refresh comments"
         >
-          <RotateCw className="h-3.5 w-3.5" />
+          <RotateCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
         </button>
         <span className="text-xs text-muted-foreground">
           {allThreads.length > 0
@@ -149,17 +151,24 @@ export function PRCommentsView({ worktreeId }: PRCommentsViewProps): React.JSX.E
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {allThreads.length === 0 && !isLoading ? (
+        {isLoading && allThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              No review comments on this PR yet
-            </p>
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <p className="text-xs text-muted-foreground mt-2">Loading comments...</p>
+          </div>
+        ) : allThreads.length === 0 && !isLoading ? (
+          <div className="flex flex-col items-center justify-center h-full px-4 text-center">
+            <p className="text-sm text-muted-foreground">No review comments on this PR yet</p>
+            <button
+              onClick={handleRefresh}
+              className="mt-3 text-xs font-medium px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Fetch from GitHub
+            </button>
           </div>
         ) : visibleThreads.length === 0 && allThreads.length > 0 ? (
           <div className="flex flex-col items-center justify-center h-32 px-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              All comments are filtered out
-            </p>
+            <p className="text-sm text-muted-foreground">All comments are filtered out</p>
           </div>
         ) : (
           Array.from(threadsByFile.entries()).map(([filePath, threads]) => {
@@ -182,7 +191,11 @@ export function PRCommentsView({ worktreeId }: PRCommentsViewProps): React.JSX.E
                 </button>
                 {!isCollapsed &&
                   threads.map((thread) => (
-                    <PRCommentThreadView key={thread.rootComment.id} thread={thread} worktreeId={worktreeId} />
+                    <PRCommentThreadView
+                      key={thread.rootComment.id}
+                      thread={thread}
+                      worktreeId={worktreeId}
+                    />
                   ))}
               </div>
             )

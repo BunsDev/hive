@@ -4,6 +4,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { buildPRCommentPrompt } from '@/lib/pr-comment-prompt'
+import { toast } from '@/lib/toast'
 
 interface PRCommentsActionBarProps {
   worktreeId: string
@@ -35,13 +36,11 @@ export function PRCommentsActionBar({
     }
   }
 
-  const handleDiscuss = (): void => {
+  const handleDiscuss = async (): Promise<void> => {
     // Get selected threads
     const store = usePRCommentStore.getState()
     const visible = store.getVisibleThreads(worktreeId)
-    const selected = visible.filter((t) =>
-      store.selectedThreadIds.has(t.rootComment.id)
-    )
+    const selected = visible.filter((t) => store.selectedThreadIds.has(t.rootComment.id))
     if (selected.length === 0) return
 
     // Get worktree data for branch name and path
@@ -56,12 +55,18 @@ export function PRCommentsActionBar({
         break
       }
     }
-    if (!worktreePath) return
+    if (!worktreePath) {
+      console.error('PRCommentsActionBar: worktreePath is empty for worktreeId:', worktreeId)
+      return
+    }
 
     // Get active session's opencode_session_id
     const sessionStore = useSessionStore.getState()
     const activeId = sessionStore.activeSessionId
-    if (!activeId) return
+    if (!activeId) {
+      console.error('PRCommentsActionBar: no active session')
+      return
+    }
 
     let opencodeSessionId: string | null = null
     for (const sessions of sessionStore.sessionsByWorktree.values()) {
@@ -71,19 +76,29 @@ export function PRCommentsActionBar({
         break
       }
     }
-    if (!opencodeSessionId) return
+    if (!opencodeSessionId) {
+      console.error('PRCommentsActionBar: no opencodeSessionId for active session:', activeId)
+      return
+    }
 
     // Build prompt and send
     const promptText = buildPRCommentPrompt(selected, branchName)
     if (!promptText) return
 
-    window.opencodeOps.prompt(worktreePath, opencodeSessionId, promptText)
+    try {
+      await window.opencodeOps.prompt(worktreePath, opencodeSessionId, promptText)
 
-    // Deselect all threads
-    store.deselectAll()
+      // Deselect all threads
+      store.deselectAll()
 
-    // Switch to session view
-    useFileViewerStore.getState().setActiveFile(null)
+      // Switch to session view
+      useFileViewerStore.getState().setActiveFile(null)
+
+      toast.success('Comments sent to agent')
+    } catch (err) {
+      console.error('Failed to send PR comments to agent:', err)
+      toast.error('Failed to send comments to agent')
+    }
   }
 
   return (
