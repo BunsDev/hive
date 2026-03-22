@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore, type TokenInfo, type SessionModelRef } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
+import { useCommandApprovalStore } from '@/stores/useCommandApprovalStore'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
@@ -352,6 +353,11 @@ export function useOpenCodeGlobalListener(): void {
               message?: string
               suggestion?: string
             } | undefined
+
+            // Dismiss the approval dialog if it's still showing (avoid confusing mixed state)
+            if (data?.requestId) {
+              useCommandApprovalStore.getState().removeApproval(sessionId, data.requestId)
+            }
 
             const message = data?.message ||
               `Security approval failed after 60 seconds. The approval dialog may not have appeared. Try disabling security temporarily in Settings > Security.`
