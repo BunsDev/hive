@@ -86,6 +86,15 @@ function RunOutputLineInner({ line, highlight }: RunOutputLineProps): React.JSX.
     return <div className="text-destructive">{line.slice(5)}</div>
   }
 
+  // Notice marker (for long-running commands)
+  if (line.startsWith('\x00NOTICE:')) {
+    return (
+      <div className="text-amber-500/80 text-sm italic bg-amber-500/5 px-2 py-1 rounded-sm my-1">
+        ℹ️ {line.slice(8)}
+      </div>
+    )
+  }
+
   // Normal ANSI line — with or without highlight
   if (highlight) {
     return renderHighlightedLine(line, highlight)
