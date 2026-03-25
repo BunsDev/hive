@@ -193,6 +193,7 @@ export class DatabaseService {
     this.safeAddColumn('worktrees', 'github_pr_number', 'INTEGER DEFAULT NULL')
     this.safeAddColumn('worktrees', 'github_pr_url', 'TEXT DEFAULT NULL')
     this.safeAddColumn('connections', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
+    this.safeAddColumn('projects', 'kanban_simple_mode', 'INTEGER NOT NULL DEFAULT 0')
 
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_connection ON sessions(connection_id);
@@ -219,6 +220,29 @@ export class DatabaseService {
         ON session_activities(session_id, created_at, id);
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
         ON session_activities(session_id, turn_id, created_at);
+    `)
+
+    // Kanban tickets table + indexes (idempotent repair for v11 migration)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS kanban_tickets (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        attachments TEXT NOT NULL DEFAULT '[]',
+        "column" TEXT NOT NULL DEFAULT 'todo',
+        sort_order REAL NOT NULL DEFAULT 0,
+        current_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        mode TEXT,
+        plan_ready INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_project ON kanban_tickets(project_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_session ON kanban_tickets(current_session_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_worktree ON kanban_tickets(worktree_id);
     `)
   }
 
