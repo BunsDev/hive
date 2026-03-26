@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useSessionStore } from './useSessionStore'
 import { useConnectionStore } from './useConnectionStore'
 import { lastSendMode } from '@/lib/message-send-times'
+import { notifyKanbanSessionSync } from './store-coordination'
 
 export type SessionStatusType =
   | 'working'
@@ -77,6 +78,17 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
         [sessionId]: status ? { status, timestamp: Date.now(), ...metadata } : null
       }
     }))
+
+    // ── Kanban coordination: notify kanban store of relevant status changes ──
+    if (status === 'completed') {
+      const mode = lastSendMode.get(sessionId) as 'build' | 'plan' | undefined
+      notifyKanbanSessionSync(sessionId, {
+        type: 'session_completed',
+        sessionMode: mode
+      })
+    } else if (status === 'plan_ready') {
+      notifyKanbanSessionSync(sessionId, { type: 'plan_ready' })
+    }
   },
 
   clearSessionStatus: (sessionId: string) => {

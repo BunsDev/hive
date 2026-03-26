@@ -26,18 +26,20 @@ export function useDropZone({ onDrop }: UseDropZoneProps) {
   }, [])
 
   const handleDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault()
-    if (e.dataTransfer) {
+    // Only intercept file drags — let kanban (and other in-app) drags propagate
+    if (e.dataTransfer?.types.includes('Files')) {
+      e.preventDefault()
       e.dataTransfer.dropEffect = 'copy'
     }
   }, [])
 
   const handleDrop = useCallback(
     (e: DragEvent) => {
-      e.preventDefault()
       dragCounterRef.current = 0
       setIsDragging(false)
+      // Only intercept file drops — let kanban (and other in-app) drops propagate
       if (e.dataTransfer?.files.length) {
+        e.preventDefault()
         onDrop(e.dataTransfer.files)
       }
     },
