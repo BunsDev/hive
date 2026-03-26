@@ -969,6 +969,14 @@ describe('Session 11: Kanban Ticket Modal Modes', () => {
         fireEvent.click(confirmBtn)
       })
 
+      // Should have marked the session as completed
+      await waitFor(() => {
+        expect(mockDbSession.update).toHaveBeenCalledWith(
+          'session-1',
+          expect.objectContaining({ status: 'completed' })
+        )
+      })
+
       // Should have cleared session fields on the ticket
       await waitFor(() => {
         expect(mockKanban.ticket.update).toHaveBeenCalledWith(

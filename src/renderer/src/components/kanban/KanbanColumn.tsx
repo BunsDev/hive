@@ -16,6 +16,7 @@ import {
   AlertDialogCancel
 } from '@/components/ui/alert-dialog'
 import { useKanbanStore, getKanbanDragData, setKanbanDragData } from '@/stores/useKanbanStore'
+import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import type { KanbanTicket, KanbanTicketColumn as ColumnType } from '../../../../main/db/types'
 
 // ── Column display names ────────────────────────────────────────────
@@ -158,6 +159,17 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
     const store = useKanbanStore.getState()
 
     try {
+      // Stop the actual session
+      const allTickets = store.tickets.get(projectId) ?? []
+      const draggedTicket = allTickets.find((t) => t.id === ticketId)
+      if (draggedTicket?.current_session_id) {
+        await window.db.session.update(draggedTicket.current_session_id, {
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        useWorktreeStatusStore.getState().clearSessionStatus(draggedTicket.current_session_id)
+      }
+
       // Clear session link on the ticket
       await store.updateTicket(ticketId, projectId, {
         current_session_id: null,
@@ -290,30 +302,32 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
       )}
 
       {/* Backward drag confirmation dialog — To Do column */}
-      <AlertDialog
-        open={!!pendingBackwardDrag}
-        onOpenChange={(open) => {
-          if (!open) setPendingBackwardDrag(null)
-        }}
-      >
-        <AlertDialogContent data-testid="backward-drag-confirm-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Stop active session?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This ticket has an active session. Stop the session and move to To Do?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="backward-drag-cancel-btn">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="backward-drag-confirm-btn"
-              onClick={handleConfirmBackwardDrag}
-            >
-              Stop &amp; Move
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isTodoColumn && (
+        <AlertDialog
+          open={!!pendingBackwardDrag}
+          onOpenChange={(open) => {
+            if (!open) setPendingBackwardDrag(null)
+          }}
+        >
+          <AlertDialogContent data-testid="backward-drag-confirm-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Stop active session?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This ticket has an active session. Stop the session and move to To Do?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="backward-drag-cancel-btn">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                data-testid="backward-drag-confirm-btn"
+                onClick={handleConfirmBackwardDrag}
+              >
+                Stop &amp; Move
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   )
 }
