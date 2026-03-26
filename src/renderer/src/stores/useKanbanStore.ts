@@ -7,6 +7,23 @@ import type {
   KanbanTicketUpdate
 } from '../../../main/db/types'
 
+// ── Shared drag state (module-level, avoids DataTransfer issues in Electron) ──
+export interface KanbanDragData {
+  ticketId: string
+  sourceColumn: string
+  sourceIndex: number
+}
+
+let _kanbanDragData: KanbanDragData | null = null
+
+export function setKanbanDragData(data: KanbanDragData | null): void {
+  _kanbanDragData = data
+}
+
+export function getKanbanDragData(): KanbanDragData | null {
+  return _kanbanDragData
+}
+
 // ── Column ordering for sort comparisons ───────────────────────────────
 const COLUMN_ORDER: Record<KanbanTicketColumn, number> = {
   todo: 0,
