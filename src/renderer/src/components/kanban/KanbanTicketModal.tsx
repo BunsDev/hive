@@ -42,7 +42,7 @@ import { PLAN_MODE_PREFIX } from '@/lib/constants'
 import { parseAttachmentUrl } from '@/lib/attachment-utils'
 import type { AttachmentInfo } from '@/lib/attachment-utils'
 import { toast } from '@/lib/toast'
-import type { KanbanTicket } from '../../../../main/db/types'
+import type { KanbanTicket, KanbanTicketUpdate } from '../../../../main/db/types'
 
 // ── Types ───────────────────────────────────────────────────────────
 type ModalMode = 'edit' | 'plan_review' | 'review' | 'error'
@@ -53,6 +53,77 @@ interface TicketAttachment extends AttachmentInfo {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+/** Find a worktree by its ID across all projects */
+function findWorktreeById(
+  worktreeId: string
+): { id: string; path: string; branch_name: string; project_id: string } | null {
+  for (const worktrees of useWorktreeStore.getState().worktreesByProject.values()) {
+    const wt = worktrees.find((w) => w.id === worktreeId)
+    if (wt) return wt
+  }
+  return null
+}
+
+/** Find a worktree path by its ID across all projects */
+function findWorktreePathById(worktreeId: string): string | null {
+  return findWorktreeById(worktreeId)?.path ?? null
+}
+
+/** Find a session by ID across worktree and connection session maps */
+function findSessionById(sessionId: string): {
+  session: { id: string; worktree_id: string | null; opencode_session_id: string | null }
+  worktreePath: string | null
+} | null {
+  const sessionStore = useSessionStore.getState()
+  for (const sessions of sessionStore.sessionsByWorktree.values()) {
+    const found = sessions.find((s) => s.id === sessionId)
+    if (found) {
+      const worktreePath = found.worktree_id ? findWorktreePathById(found.worktree_id) : null
+      return { session: found, worktreePath }
+    }
+  }
+  for (const sessions of sessionStore.sessionsByConnection.values()) {
+    const found = sessions.find((s) => s.id === sessionId)
+    if (found) {
+      const worktreePath = found.worktree_id ? findWorktreePathById(found.worktree_id) : null
+      return { session: found, worktreePath }
+    }
+  }
+  return null
+}
+
+/** Send a followup prompt to an existing session and update ticket mode */
+async function sendFollowupToSession(opts: {
+  sessionId: string
+  prompt: string
+  followUpMode: FollowUpMode
+  ticketId: string
+  projectId: string
+  updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
+}): Promise<void> {
+  const result = findSessionById(opts.sessionId)
+  if (!result) return
+
+  const { session, worktreePath } = result
+
+  const modePrefix = opts.followUpMode === 'plan' ? PLAN_MODE_PREFIX : ''
+  const fullPrompt = modePrefix + opts.prompt
+
+  if (worktreePath && session.opencode_session_id) {
+    messageSendTimes.set(opts.sessionId, Date.now())
+    lastSendMode.set(opts.sessionId, opts.followUpMode)
+    useWorktreeStatusStore
+      .getState()
+      .setSessionStatus(opts.sessionId, opts.followUpMode === 'plan' ? 'planning' : 'working')
+
+    await window.opencodeOps.prompt(worktreePath, session.opencode_session_id, [
+      { type: 'text', text: fullPrompt }
+    ])
+  }
+
+  await opts.updateTicket(opts.ticketId, opts.projectId, { mode: opts.followUpMode })
+}
 
 /** Determine what mode the modal should operate in */
 function resolveModalMode(ticket: KanbanTicket, sessionStatus: string | null): ModalMode {
@@ -212,7 +283,7 @@ function EditModeContent({
 }: {
   ticket: KanbanTicket
   onClose: () => void
-  updateTicket: (ticketId: string, projectId: string, data: Record<string, unknown>) => Promise<void>
+  updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
   deleteTicket: (ticketId: string, projectId: string) => Promise<void>
 }) {
   const [title, setTitle] = useState(ticket.title)
@@ -538,15 +609,7 @@ function PlanReviewModeContent({
 
       // For opencode agents, approve the plan if there's a pending one
       if (pendingPlan && sessionRecord?.worktree_id) {
-        const worktreeStore = useWorktreeStore.getState()
-        let worktreePath: string | null = null
-        for (const worktrees of worktreeStore.worktreesByProject.values()) {
-          const wt = worktrees.find((w) => w.id === sessionRecord.worktree_id)
-          if (wt) {
-            worktreePath = wt.path
-            break
-          }
-        }
+        const worktreePath = findWorktreePathById(sessionRecord.worktree_id)
         if (worktreePath) {
           await window.opencodeOps.planApprove(worktreePath, sessionId, pendingPlan.requestId)
         }
@@ -603,28 +666,20 @@ function PlanReviewModeContent({
       useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
 
       // Look up worktree and project for duplication
-      const worktreeStore = useWorktreeStore.getState()
-      let worktree: { id: string; path: string; branch_name: string; project_id: string } | undefined
-      for (const worktrees of worktreeStore.worktreesByProject.values()) {
-        const found = worktrees.find((w) => w.id === ticket.worktree_id)
-        if (found) {
-          worktree = found
-          break
-        }
-      }
+      const worktree = findWorktreeById(ticket.worktree_id!)
       if (!worktree) {
         toast.error('Could not find worktree')
         return
       }
 
-      const project = useProjectStore.getState().projects.find((p) => p.id === worktree!.project_id)
+      const project = useProjectStore.getState().projects.find((p) => p.id === worktree.project_id)
       if (!project) {
         toast.error('Could not find project')
         return
       }
 
       // Duplicate worktree
-      const dupResult = await worktreeStore.duplicateWorktree(
+      const dupResult = await useWorktreeStore.getState().duplicateWorktree(
         project.id,
         project.path,
         project.name,
@@ -746,7 +801,7 @@ function ReviewModeContent({
   ticket: KanbanTicket
   onClose: () => void
   moveTicket: (ticketId: string, projectId: string, column: 'todo' | 'in_progress' | 'review' | 'done', sortOrder: number) => Promise<void>
-  updateTicket: (ticketId: string, projectId: string, data: Record<string, unknown>) => Promise<void>
+  updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
 }) {
   const [followUpText, setFollowUpText] = useState('')
   const [followUpMode, setFollowUpMode] = useState<FollowUpMode>('build')
@@ -783,57 +838,20 @@ function ReviewModeContent({
     setIsSending(true)
 
     try {
-      const sessionId = ticket.current_session_id
-
-      // Look up session and worktree path
-      const sessionStore = useSessionStore.getState()
-      let opcSessionId: string | null = null
-      let worktreePath: string | null = null
-
-      for (const sessions of sessionStore.sessionsByWorktree.values()) {
-        const found = sessions.find((s) => s.id === sessionId)
-        if (found) {
-          opcSessionId = found.opencode_session_id
-          // Find worktree path
-          if (found.worktree_id) {
-            for (const worktrees of useWorktreeStore.getState().worktreesByProject.values()) {
-              const wt = worktrees.find((w) => w.id === found.worktree_id)
-              if (wt) {
-                worktreePath = wt.path
-                break
-              }
-            }
-          }
-          break
-        }
-      }
-
-      // Apply mode prefix
-      const skipPrefix = false // In review mode, apply prefix for opencode
-      const modePrefix = followUpMode === 'plan' && !skipPrefix ? PLAN_MODE_PREFIX : ''
-      const fullPrompt = modePrefix + followUpText.trim()
-
-      // Send followup via opencodeOps if we have the session info
-      if (worktreePath && opcSessionId) {
-        messageSendTimes.set(sessionId, Date.now())
-        lastSendMode.set(sessionId, followUpMode)
-        useWorktreeStatusStore
-          .getState()
-          .setSessionStatus(sessionId, followUpMode === 'plan' ? 'planning' : 'working')
-
-        await window.opencodeOps.prompt(worktreePath, opcSessionId, [
-          { type: 'text', text: fullPrompt }
-        ])
-      }
+      await sendFollowupToSession({
+        sessionId: ticket.current_session_id,
+        prompt: followUpText.trim(),
+        followUpMode,
+        ticketId: ticket.id,
+        projectId: ticket.project_id,
+        updateTicket
+      })
 
       // Move ticket back to in_progress
       const kanbanStore = useKanbanStore.getState()
       const inProgressTickets = kanbanStore.getTicketsByColumn(ticket.project_id, 'in_progress')
       const sortOrder = kanbanStore.computeSortOrder(inProgressTickets, 0)
       await moveTicket(ticket.id, ticket.project_id, 'in_progress', sortOrder)
-
-      // Update ticket mode
-      await updateTicket(ticket.id, ticket.project_id, { mode: followUpMode })
 
       toast.success('Followup sent')
       onClose()
@@ -995,47 +1013,14 @@ function ErrorModeContent({
     setIsSending(true)
 
     try {
-      const sessionId = ticket.current_session_id
-
-      // Look up session info
-      const sessionStore = useSessionStore.getState()
-      let opcSessionId: string | null = null
-      let worktreePath: string | null = null
-
-      for (const sessions of sessionStore.sessionsByWorktree.values()) {
-        const found = sessions.find((s) => s.id === sessionId)
-        if (found) {
-          opcSessionId = found.opencode_session_id
-          if (found.worktree_id) {
-            for (const worktrees of useWorktreeStore.getState().worktreesByProject.values()) {
-              const wt = worktrees.find((w) => w.id === found.worktree_id)
-              if (wt) {
-                worktreePath = wt.path
-                break
-              }
-            }
-          }
-          break
-        }
-      }
-
-      const modePrefix = followUpMode === 'plan' ? PLAN_MODE_PREFIX : ''
-      const fullPrompt = modePrefix + followUpText.trim()
-
-      if (worktreePath && opcSessionId) {
-        messageSendTimes.set(sessionId, Date.now())
-        lastSendMode.set(sessionId, followUpMode)
-        useWorktreeStatusStore
-          .getState()
-          .setSessionStatus(sessionId, followUpMode === 'plan' ? 'planning' : 'working')
-
-        await window.opencodeOps.prompt(worktreePath, opcSessionId, [
-          { type: 'text', text: fullPrompt }
-        ])
-      }
-
-      // Update ticket mode
-      await updateTicket(ticket.id, ticket.project_id, { mode: followUpMode })
+      await sendFollowupToSession({
+        sessionId: ticket.current_session_id,
+        prompt: followUpText.trim(),
+        followUpMode,
+        ticketId: ticket.id,
+        projectId: ticket.project_id,
+        updateTicket
+      })
 
       toast.success('Retry sent')
       onClose()
