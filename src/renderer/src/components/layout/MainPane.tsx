@@ -175,7 +175,8 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     }
 
     // Kanban board view takes priority when active and a project is selected
-    if (isBoardViewActive && selectedProjectId) {
+    // but yields to file/diff/context views when their tab is active
+    if (isBoardViewActive && selectedProjectId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
       return <KanbanBoard projectId={selectedProjectId} />
     }
 
