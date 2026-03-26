@@ -44,10 +44,12 @@ import { PLAN_MODE_PREFIX } from '@/lib/constants'
 import { parseAttachmentUrl } from '@/lib/attachment-utils'
 import type { AttachmentInfo } from '@/lib/attachment-utils'
 import { toast } from '@/lib/toast'
+import { useQuestionStore, type QuestionRequest } from '@/stores/useQuestionStore'
+import { QuestionPrompt } from '@/components/sessions/QuestionPrompt'
 import type { KanbanTicket, KanbanTicketUpdate } from '../../../../main/db/types'
 
 // ── Types ───────────────────────────────────────────────────────────
-type ModalMode = 'edit' | 'plan_review' | 'review' | 'error'
+type ModalMode = 'edit' | 'plan_review' | 'review' | 'error' | 'question'
 type FollowUpMode = 'build' | 'plan'
 
 interface TicketAttachment extends AttachmentInfo {
@@ -276,7 +278,19 @@ function KanbanTicketModalContent({
     )
   )
 
-  const modalMode = resolveModalMode(ticket, sessionStatus)
+  const activeQuestion = useQuestionStore(
+    useCallback(
+      (state) => {
+        if (!ticket.current_session_id) return null
+        const questions = state.pendingBySession.get(ticket.current_session_id)
+        return questions?.[0] ?? null
+      },
+      [ticket.current_session_id]
+    )
+  )
+
+  const baseModalMode = resolveModalMode(ticket, sessionStatus)
+  const modalMode = activeQuestion ? 'question' : baseModalMode
 
   // Render the appropriate content based on mode
   switch (modalMode) {
@@ -310,6 +324,14 @@ function KanbanTicketModalContent({
       )
     case 'error':
       return <ErrorModeContent ticket={ticket} onClose={onClose} />
+    case 'question':
+      return (
+        <QuestionModeContent
+          ticket={ticket}
+          onClose={onClose}
+          activeQuestion={activeQuestion!}
+        />
+      )
   }
 }
 
@@ -1417,6 +1439,60 @@ function ErrorModeContent({
           {isSending ? 'Sending...' : 'Send'}
         </Button>
       </DialogFooter>
+    </DialogContent>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// QUESTION MODE
+// ════════════════════════════════════════════════════════════════════
+
+function QuestionModeContent({
+  ticket,
+  onClose,
+  activeQuestion
+}: {
+  ticket: KanbanTicket
+  onClose: () => void
+  activeQuestion: QuestionRequest
+}) {
+  const handleReply = useCallback(async (requestId: string, answers: string[][]) => {
+    try {
+      const worktreePath = ticket.worktree_id ? findWorktreePathById(ticket.worktree_id) : null
+      await window.opencodeOps.questionReply(requestId, answers, worktreePath || undefined)
+      onClose()
+    } catch {
+      toast.error('Failed to send answer')
+    }
+  }, [ticket.worktree_id, onClose])
+
+  const handleReject = useCallback(async (requestId: string) => {
+    try {
+      const worktreePath = ticket.worktree_id ? findWorktreePathById(ticket.worktree_id) : null
+      await window.opencodeOps.questionReject(requestId, worktreePath || undefined)
+      onClose()
+    } catch {
+      toast.error('Failed to dismiss question')
+    }
+  }, [ticket.worktree_id, onClose])
+
+  return (
+    <DialogContent data-testid="kanban-ticket-modal" className="sm:max-w-lg">
+      <DialogHeader>
+        <div className="flex items-center justify-between">
+          <DialogTitle className="flex items-center gap-2">
+            Question from Agent
+          </DialogTitle>
+          <JumpToSessionButton ticket={ticket} onClose={onClose} />
+        </div>
+        <DialogDescription className="truncate">{ticket.title}</DialogDescription>
+      </DialogHeader>
+      <QuestionPrompt
+        key={activeQuestion.id}
+        request={activeQuestion}
+        onReply={handleReply}
+        onReject={handleReject}
+      />
     </DialogContent>
   )
 }
