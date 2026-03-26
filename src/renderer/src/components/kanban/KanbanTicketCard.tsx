@@ -31,9 +31,39 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    @keyframes kanban-border-pulse {
-      0%, 100% { box-shadow: 0 0 0 1px var(--pulse-color), 0 0 4px 0 var(--pulse-color); opacity: 1; }
-      50% { box-shadow: 0 0 0 1px var(--pulse-color), 0 0 10px 2px var(--pulse-color); opacity: 0.7; }
+    @property --kanban-angle {
+      syntax: "<angle>";
+      inherits: false;
+      initial-value: 0deg;
+    }
+
+    @keyframes kanban-gradient-rotate {
+      to { --kanban-angle: 360deg; }
+    }
+
+    [data-gradient-border] {
+      position: relative;
+      isolation: isolate;
+    }
+
+    [data-gradient-border]::before {
+      content: '';
+      position: absolute;
+      inset: -1.5px;
+      border-radius: inherit;
+      background: conic-gradient(
+        from var(--kanban-angle) at 50% 50%,
+        var(--grad-dim) 0%,
+        var(--grad-bright) 12.5%,
+        var(--grad-dim) 25%,
+        transparent 50%,
+        var(--grad-dim) 75%,
+        var(--grad-bright) 87.5%,
+        var(--grad-dim) 100%
+      );
+      animation: kanban-gradient-rotate 3s linear infinite;
+      pointer-events: none;
+      z-index: -1;
     }
   `
   document.head.appendChild(style)
@@ -93,12 +123,17 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
   const hasAttachments = ticket.attachments.length > 0
 
   // ── Border state computation ────────────────────────────────────
+  // gradient-*  → session actively working (rotating gradient border)
+  // static-*    → session attached but idle / plan ready (solid color border)
+  // default     → no session attached
   const borderState = useMemo(() => {
-    if (isActive && ticket.mode === 'build') return 'pulse-blue'
-    if (isActive && ticket.mode === 'plan') return 'pulse-violet'
+    if (isActive && ticket.mode === 'build') return 'gradient-blue'
+    if (isActive && ticket.mode === 'plan') return 'gradient-violet'
     if (ticket.plan_ready) return 'static-violet'
+    if (ticket.current_session_id && ticket.mode === 'build') return 'static-blue'
+    if (ticket.current_session_id && ticket.mode === 'plan') return 'static-violet'
     return 'default'
-  }, [isActive, ticket.mode, ticket.plan_ready])
+  }, [isActive, ticket.mode, ticket.plan_ready, ticket.current_session_id])
 
   // ── Drag handlers ──────────────────────────────────────────────
   const handleDragStart = useCallback(
@@ -181,6 +216,11 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
         <ContextMenuTrigger asChild>
           <div
             data-testid={`kanban-ticket-${ticket.id}`}
+            data-gradient-border={
+              borderState === 'gradient-blue' || borderState === 'gradient-violet'
+                ? ''
+                : undefined
+            }
             draggable={true}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -190,20 +230,21 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
               'hover:bg-muted/40',
               isDragging && 'invisible',
               borderState === 'default' && 'border-border/60',
+              borderState === 'static-blue' && 'border-blue-500/60',
               borderState === 'static-violet' && 'border-violet-500/60',
-              borderState === 'pulse-blue' && 'border-blue-500/60',
-              borderState === 'pulse-violet' && 'border-violet-500/60'
+              (borderState === 'gradient-blue' || borderState === 'gradient-violet') &&
+                'border-transparent'
             )}
             style={
-              borderState === 'pulse-blue'
+              borderState === 'gradient-blue'
                 ? ({
-                    '--pulse-color': 'rgb(59 130 246 / 0.5)',
-                    animation: 'kanban-border-pulse 2s ease-in-out infinite'
+                    '--grad-bright': 'rgb(59 130 246)',
+                    '--grad-dim': 'rgb(59 130 246 / 0.3)'
                   } as React.CSSProperties)
-                : borderState === 'pulse-violet'
+                : borderState === 'gradient-violet'
                   ? ({
-                      '--pulse-color': 'rgb(139 92 246 / 0.5)',
-                      animation: 'kanban-border-pulse 2s ease-in-out infinite'
+                      '--grad-bright': 'rgb(139 92 246)',
+                      '--grad-dim': 'rgb(139 92 246 / 0.3)'
                     } as React.CSSProperties)
                   : undefined
             }
