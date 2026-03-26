@@ -31,9 +31,68 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    @keyframes kanban-border-pulse {
-      0%, 100% { box-shadow: 0 0 0 1px var(--pulse-color), 0 0 4px 0 var(--pulse-color); opacity: 1; }
-      50% { box-shadow: 0 0 0 1px var(--pulse-color), 0 0 10px 2px var(--pulse-color); opacity: 0.7; }
+    @property --kanban-angle {
+      syntax: "<angle>";
+      inherits: false;
+      initial-value: 0deg;
+    }
+
+    @keyframes kanban-gradient-rotate {
+      to { --kanban-angle: 360deg; }
+    }
+
+    [data-gradient-border] {
+      position: relative;
+      isolation: isolate;
+    }
+
+    [data-gradient-border]::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: conic-gradient(
+        from var(--kanban-angle) at 50% 50%,
+        var(--grad-dim) 0%,
+        var(--grad-bright) 12.5%,
+        var(--grad-dim) 25%,
+        transparent 50%,
+        var(--grad-dim) 75%,
+        var(--grad-bright) 87.5%,
+        var(--grad-dim) 100%
+      );
+      -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      animation: kanban-gradient-rotate 3s linear infinite;
+      pointer-events: none;
+    }
+
+    [data-gradient-border]::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: inherit;
+      background: conic-gradient(
+        from var(--kanban-angle) at 50% 50%,
+        transparent 0%,
+        var(--grad-bright) 12.5%,
+        transparent 25%,
+        transparent 50%,
+        var(--grad-bright) 62.5%,
+        transparent 75%
+      );
+      filter: blur(8px);
+      opacity: 0.25;
+      animation: kanban-gradient-rotate 3s linear infinite;
+      pointer-events: none;
+      z-index: -1;
     }
   `
   document.head.appendChild(style)
@@ -181,6 +240,11 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
         <ContextMenuTrigger asChild>
           <div
             data-testid={`kanban-ticket-${ticket.id}`}
+            data-gradient-border={
+              borderState === 'pulse-blue' || borderState === 'pulse-violet'
+                ? ''
+                : undefined
+            }
             draggable={true}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -191,19 +255,19 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
               isDragging && 'invisible',
               borderState === 'default' && 'border-border/60',
               borderState === 'static-violet' && 'border-violet-500/60',
-              borderState === 'pulse-blue' && 'border-blue-500/60',
-              borderState === 'pulse-violet' && 'border-violet-500/60'
+              (borderState === 'pulse-blue' || borderState === 'pulse-violet') &&
+                'border-transparent'
             )}
             style={
               borderState === 'pulse-blue'
                 ? ({
-                    '--pulse-color': 'rgb(59 130 246 / 0.5)',
-                    animation: 'kanban-border-pulse 2s ease-in-out infinite'
+                    '--grad-bright': 'rgb(59 130 246)',
+                    '--grad-dim': 'rgb(59 130 246 / 0.3)'
                   } as React.CSSProperties)
                 : borderState === 'pulse-violet'
                   ? ({
-                      '--pulse-color': 'rgb(139 92 246 / 0.5)',
-                      animation: 'kanban-border-pulse 2s ease-in-out infinite'
+                      '--grad-bright': 'rgb(139 92 246)',
+                      '--grad-dim': 'rgb(139 92 246 / 0.3)'
                     } as React.CSSProperties)
                   : undefined
             }

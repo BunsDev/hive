@@ -362,9 +362,9 @@ describe('Session 12: Simple Board Mode', () => {
       '[data-testid="kanban-ticket-t-flow"]'
     ) as HTMLElement
 
-    // Flow ticket should retain pulsing blue border
-    expect(card?.className).toMatch(/blue/)
-    expect(card?.style.animation).toContain('kanban-border-pulse')
+    // Flow ticket should retain gradient border
+    expect(card?.hasAttribute('data-gradient-border')).toBe(true)
+    expect(card?.style.getPropertyValue('--grad-bright')).toBe('rgb(59 130 246)')
   })
 
   // ── Assign to worktree conversion ────────────────────────────────

@@ -101,12 +101,17 @@ export function WorktreePickerModal({
   useEffect(() => {
     if (open) {
       setMode('build')
-      setSelectedWorktreeId(null)
+      // Auto-select the current worktree if it belongs to this project
+      const { selectedWorktreeId: currentId, worktreesByProject } =
+        useWorktreeStore.getState()
+      const projectWts = worktreesByProject.get(projectId) ?? []
+      const match = currentId ? projectWts.find((wt) => wt.id === currentId) : null
+      setSelectedWorktreeId(match ? currentId : null)
       setIsNewWorktree(false)
       setPromptText(buildPrompt('build', ticket))
       setIsSending(false)
     }
-  }, [open, ticket])
+  }, [open, ticket, projectId])
 
   // ── Handle mode toggle ──────────────────────────────────────────
   const toggleMode = useCallback(() => {
@@ -300,12 +305,12 @@ export function WorktreePickerModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid="worktree-picker-modal"
-        className="sm:max-w-lg"
+        className="sm:max-w-[520px]"
         onKeyDown={handleKeyDown}
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            Start Session
+        <DialogHeader className="space-y-2.5 pb-1">
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-base">Start Session</DialogTitle>
             {/* Build/Plan chip toggle */}
             <button
               data-testid="wt-picker-mode-toggle"
@@ -313,7 +318,7 @@ export function WorktreePickerModal({
               type="button"
               onClick={toggleMode}
               className={cn(
-                'flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+                'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors',
                 'border select-none',
                 mode === 'build'
                   ? 'bg-blue-500/10 border-blue-500/30 text-blue-500 hover:bg-blue-500/20'
@@ -322,25 +327,25 @@ export function WorktreePickerModal({
               title={`${modeLabel} mode (Tab to toggle)`}
               aria-label={`Current mode: ${modeLabel}. Click or Tab to switch`}
             >
-              <ModeIcon className="h-3 w-3" aria-hidden="true" />
+              <ModeIcon className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{modeLabel}</span>
             </button>
-          </DialogTitle>
+          </div>
           <DialogDescription>
             Pick a worktree for{' '}
             <span className="font-medium text-foreground">{ticket.title}</span>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
           {/* ── Worktree list ──────────────────────────────────── */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Worktree
             </label>
             <div
               data-testid="worktree-list"
-              className="max-h-[180px] overflow-y-auto rounded-md border border-border/60"
+              className="max-h-[200px] overflow-y-auto rounded-lg border border-border/60"
             >
               {/* "New worktree" option — always at top */}
               <button
@@ -348,7 +353,7 @@ export function WorktreePickerModal({
                 type="button"
                 onClick={handleSelectNewWorktree}
                 className={cn(
-                  'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors',
+                  'flex w-full items-center gap-3 px-3.5 py-2.5 text-sm transition-colors',
                   'border-b border-border/40',
                   'hover:bg-muted/30',
                   isNewWorktree && 'bg-primary/8 ring-1 ring-inset ring-primary/20'
@@ -356,7 +361,7 @@ export function WorktreePickerModal({
               >
                 <span
                   className={cn(
-                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
                     'bg-primary/10 text-primary'
                   )}
                 >
@@ -377,13 +382,13 @@ export function WorktreePickerModal({
                     type="button"
                     onClick={() => handleSelectWorktree(wt.id)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors',
+                      'flex w-full items-center gap-3 px-3.5 py-2.5 text-sm transition-colors',
                       'border-b border-border/40 last:border-b-0',
                       'hover:bg-muted/30',
                       isSelected && 'bg-primary/8 ring-1 ring-inset ring-primary/20'
                     )}
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
                       <GitBranch className="h-3.5 w-3.5" />
                     </span>
                     <span className="flex-1 truncate text-left font-medium text-foreground">
@@ -406,7 +411,7 @@ export function WorktreePickerModal({
           </div>
 
           {/* ── Prompt preview / editor ────────────────────────── */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label
               htmlFor="wt-picker-prompt-input"
               className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
@@ -426,7 +431,7 @@ export function WorktreePickerModal({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="pt-1">
           <Button
             type="button"
             variant="outline"
