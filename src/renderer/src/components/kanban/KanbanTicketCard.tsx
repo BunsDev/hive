@@ -3,7 +3,7 @@ import { Paperclip, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
-import { setKanbanDragData } from '@/stores/useKanbanStore'
+import { setKanbanDragData, useKanbanStore } from '@/stores/useKanbanStore'
 import type { KanbanTicket } from '../../../../main/db/types'
 
 // ── Pulsing border keyframes (injected once) ────────────────────────
@@ -100,10 +100,10 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
     setIsDragging(false)
   }, [])
 
-  // ── Click handler (stub for future modal) ───────────────────────
+  // ── Click handler — open ticket detail modal ───────────────────
   const handleClick = useCallback(() => {
-    // Future: open ticket detail modal
-  }, [])
+    useKanbanStore.getState().setSelectedTicketId(ticket.id)
+  }, [ticket.id])
 
   return (
     <div

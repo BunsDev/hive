@@ -6,6 +6,10 @@ import type {
   KanbanTicketCreate,
   KanbanTicketUpdate
 } from '../../../main/db/types'
+import {
+  registerKanbanSessionSync,
+  type KanbanSessionEvent
+} from './store-coordination'
 
 // ── Shared drag state (module-level, avoids DataTransfer issues in Electron) ──
 export interface KanbanDragData {
@@ -41,8 +45,11 @@ interface KanbanState {
   isBoardViewActive: boolean
   /** Per-project simple mode toggle — persisted to localStorage */
   simpleModeByProject: Record<string, boolean>
+  /** Currently selected ticket ID for the detail modal (null = closed) */
+  selectedTicketId: string | null
 
   // ── Actions ────────────────────────────────────────────────────────
+  setSelectedTicketId: (id: string | null) => void
   loadTickets: (projectId: string) => Promise<void>
   createTicket: (projectId: string, data: KanbanTicketCreate) => Promise<KanbanTicket>
   updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
@@ -56,6 +63,9 @@ interface KanbanState {
   reorderTicket: (ticketId: string, projectId: string, newSortOrder: number) => Promise<void>
   toggleBoardView: () => void
   setSimpleMode: (projectId: string, enabled: boolean) => Promise<void>
+
+  // ── Session coordination ────────────────────────────────────────────
+  syncTicketWithSession: (sessionId: string, event: KanbanSessionEvent) => void
 
   // ── Getters ────────────────────────────────────────────────────────
   getTicketsForProject: (projectId: string) => KanbanTicket[]
@@ -73,6 +83,12 @@ export const useKanbanStore = create<KanbanState>()(
       isLoading: false,
       isBoardViewActive: false,
       simpleModeByProject: {} as Record<string, boolean>,
+      selectedTicketId: null,
+
+      // ── setSelectedTicketId ────────────────────────────────────────
+      setSelectedTicketId: (id: string | null) => {
+        set({ selectedTicketId: id })
+      },
 
       // ── loadTickets ──────────────────────────────────────────────
       loadTickets: async (projectId: string) => {
@@ -229,6 +245,64 @@ export const useKanbanStore = create<KanbanState>()(
         await window.kanban.simpleMode.toggle(projectId, enabled)
       },
 
+      // ── syncTicketWithSession (called via store-coordination) ────
+      syncTicketWithSession: (sessionId: string, event: KanbanSessionEvent) => {
+        // Find all tickets across all projects referencing this session
+        const allTickets = get().tickets
+        for (const [projectId, tickets] of allTickets.entries()) {
+          for (const ticket of tickets) {
+            if (ticket.current_session_id !== sessionId) continue
+
+            switch (event.type) {
+              case 'session_completed': {
+                if (ticket.mode === 'build' && ticket.column !== 'review') {
+                  // Auto-advance build ticket to review column (idempotent — skip if already there)
+                  get()
+                    .moveTicket(ticket.id, projectId, 'review', ticket.sort_order)
+                    .catch(() => {})
+                } else if (ticket.mode === 'plan' && !ticket.plan_ready) {
+                  // Set plan_ready flag, keep in current column (idempotent — skip if already set)
+                  get()
+                    .updateTicket(ticket.id, projectId, { plan_ready: true })
+                    .catch(() => {})
+                }
+                break
+              }
+
+              case 'plan_ready': {
+                // Explicit plan.ready event — set flag (idempotent)
+                if (ticket.mode === 'plan' && !ticket.plan_ready) {
+                  get()
+                    .updateTicket(ticket.id, projectId, { plan_ready: true })
+                    .catch(() => {})
+                }
+                break
+              }
+
+              case 'supercharge': {
+                // Supercharge creates a new session — re-attach ticket and reset plan_ready
+                // Idempotent: skip if already pointing at the new session
+                if (event.newSessionId && ticket.current_session_id !== event.newSessionId) {
+                  get()
+                    .updateTicket(ticket.id, projectId, {
+                      current_session_id: event.newSessionId,
+                      plan_ready: false
+                    })
+                    .catch(() => {})
+                }
+                break
+              }
+
+              case 'session_error': {
+                // No state change needed — ticket stays in current column.
+                // The card reads session status from worktree-status store.
+                break
+              }
+            }
+          }
+        }
+      },
+
       // ── getTicketsForProject ─────────────────────────────────────
       getTicketsForProject: (projectId: string): KanbanTicket[] => {
         const tickets = get().tickets.get(projectId) ?? []
@@ -275,3 +349,8 @@ export const useKanbanStore = create<KanbanState>()(
     }
   )
 )
+
+// ── Register coordination callback after store creation ──────────────
+registerKanbanSessionSync((sessionId, event) => {
+  useKanbanStore.getState().syncTicketWithSession(sessionId, event)
+})

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useKanbanStore } from '@/stores/useKanbanStore'
 import { KanbanColumn } from '@/components/kanban/KanbanColumn'
+import { KanbanTicketModal } from '@/components/kanban/KanbanTicketModal'
 import type { KanbanTicketColumn } from '../../../../main/db/types'
 
 const COLUMNS: KanbanTicketColumn[] = ['todo', 'in_progress', 'review', 'done']
@@ -34,6 +35,7 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
           projectId={projectId}
         />
       ))}
+      <KanbanTicketModal />
     </div>
   )
 }
