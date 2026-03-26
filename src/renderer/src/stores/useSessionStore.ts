@@ -339,6 +339,7 @@ export const useSessionStore = create<SessionState>()(
             project_id: projectId,
             name: isTerminal ? `Terminal ${sessionNumber}` : `Session ${sessionNumber}`,
             agent_sdk: defaultAgentSdk,
+            mode: initialMode || 'build',
             ...(defaultModel
               ? {
                   model_provider_id: defaultModel.providerID,

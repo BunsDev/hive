@@ -97,6 +97,7 @@ const db = {
       name?: string | null
       opencode_session_id?: string | null
       agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      mode?: 'build' | 'plan'
       model_provider_id?: string | null
       model_id?: string | null
       model_variant?: string | null

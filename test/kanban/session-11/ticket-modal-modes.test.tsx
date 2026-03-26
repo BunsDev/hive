@@ -571,7 +571,8 @@ describe('Session 11: Kanban Ticket Modal Modes', () => {
         expect(mockOpencodeOps.prompt).toHaveBeenCalledWith(
           '/test/feature-auth',
           'opc-session-1',
-          [{ type: 'text', text: 'Please fix the login form validation' }]
+          [{ type: 'text', text: 'Please fix the login form validation' }],
+          undefined // model parameter (resolves to undefined in test env)
         )
       })
     })
@@ -658,7 +659,8 @@ describe('Session 11: Kanban Ticket Modal Modes', () => {
         expect(mockOpencodeOps.prompt).toHaveBeenCalledWith(
           '/test/feature-auth',
           'opc-err-1',
-          [{ type: 'text', text: 'Please try again with correct paths' }]
+          [{ type: 'text', text: 'Please try again with correct paths' }],
+          undefined // model parameter (resolves to undefined in test env)
         )
       })
     })

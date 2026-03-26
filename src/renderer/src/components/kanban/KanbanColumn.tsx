@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, Fragment } from 'react'
-import { ChevronRight, ChevronDown, Plus } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
+import { Switch } from '@/components/ui/switch'
 import { KanbanTicketCard } from '@/components/kanban/KanbanTicketCard'
 import { TicketCreateModal } from '@/components/kanban/TicketCreateModal'
 import { WorktreePickerModal } from '@/components/kanban/WorktreePickerModal'
@@ -48,6 +49,21 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
   const isDoneColumn = column === 'done'
   const isTodoColumn = column === 'todo'
   const isInProgressColumn = column === 'in_progress'
+
+  // ── Simple mode toggle (In Progress column only) ───────────────
+  const isSimpleMode = useKanbanStore(
+    useCallback(
+      (state) => state.simpleModeByProject[projectId] ?? false,
+      [projectId]
+    )
+  )
+
+  const handleSimpleModeToggle = useCallback(
+    (checked: boolean) => {
+      useKanbanStore.getState().setSimpleMode(projectId, checked)
+    },
+    [projectId]
+  )
 
   const handleToggleCollapse = useCallback(() => {
     setIsCollapsed((prev) => !prev)
@@ -231,6 +247,21 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
         <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-muted/40 px-1.5 text-[11px] font-medium text-muted-foreground">
           {tickets.length}
         </span>
+
+        {/* Flow mode toggle — only for In Progress column.
+            ON (default) = flow mode: automated worktree picker on drop.
+            OFF = simple mode: direct drop, no modal. */}
+        {isInProgressColumn && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <Zap className={cn('h-3 w-3', !isSimpleMode ? 'text-amber-500' : 'text-muted-foreground/50')} />
+            <Switch
+              data-testid="simple-mode-toggle"
+              size="sm"
+              checked={!isSimpleMode}
+              onCheckedChange={(checked) => handleSimpleModeToggle(!checked)}
+            />
+          </div>
+        )}
 
         {/* Add ticket button — only for To Do column */}
         {isTodoColumn && (

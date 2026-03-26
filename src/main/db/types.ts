@@ -111,6 +111,7 @@ export interface SessionCreate {
   name?: string | null
   opencode_session_id?: string | null
   agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  mode?: SessionMode
   model_provider_id?: string | null
   model_id?: string | null
   model_variant?: string | null

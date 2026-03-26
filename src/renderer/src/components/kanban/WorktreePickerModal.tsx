@@ -15,6 +15,10 @@ import { useKanbanStore } from '@/stores/useKanbanStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useProjectStore } from '@/stores/useProjectStore'
+import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
+import { resolveModelForSdk } from '@/stores/useSettingsStore'
+import { messageSendTimes, lastSendMode } from '@/lib/message-send-times'
+import { PLAN_MODE_PREFIX } from '@/lib/constants'
 import { toast } from '@/lib/toast'
 import type { KanbanTicket } from '../../../../main/db/types'
 
@@ -73,9 +77,7 @@ export function WorktreePickerModal({
 
   const updateTicket = useKanbanStore((state) => state.updateTicket)
   const createSession = useSessionStore((state) => state.createSession)
-  const setPendingMessage = useSessionStore((state) => state.setPendingMessage)
   const createWorktree = useWorktreeStore((state) => state.createWorktree)
-  const selectWorktree = useWorktreeStore((state) => state.selectWorktree)
 
   const project = useProjectStore(
     useCallback(
@@ -191,10 +193,8 @@ export function WorktreePickerModal({
         return
       }
 
-      // Set the prompt as a pending message for the session
-      if (promptText.trim()) {
-        setPendingMessage(sessionResult.session.id, promptText.trim())
-      }
+      const sessionId = sessionResult.session.id
+      const agentSdk = sessionResult.session.agent_sdk
 
       // Update the ticket with session info and move to in_progress
       const sortOrder = useKanbanStore
@@ -205,20 +205,72 @@ export function WorktreePickerModal({
         )
 
       await updateTicket(ticket.id, projectId, {
-        current_session_id: sessionResult.session.id,
+        current_session_id: sessionId,
         worktree_id: worktreeId,
         mode,
         column: 'in_progress',
-        sort_order: sortOrder
+        sort_order: sortOrder,
+        plan_ready: false
       })
 
-      // Select the worktree in sidebar
-      selectWorktree(worktreeId)
-
-      // Notify parent and close
+      // Close modal immediately — session starts in background
       onSendComplete?.()
       onOpenChange(false)
       toast.success('Session started')
+
+      // ── Start the OpenCode session in the background ──────────
+      // Resolve worktree path from the store
+      const allWorktrees = Array.from(
+        useWorktreeStore.getState().worktreesByProject.values()
+      ).flat()
+      const worktree = allWorktrees.find((w) => w.id === worktreeId)
+      if (!worktree?.path) return
+
+      // Connect to OpenCode to create the AI session
+      const connectResult = await window.opencodeOps.connect(worktree.path, sessionId)
+      if (!connectResult.success || !connectResult.sessionId) return
+
+      // Persist the opencodeSessionId to Zustand + DB
+      useSessionStore.getState().setOpenCodeSessionId(sessionId, connectResult.sessionId)
+      await window.db.session.update(sessionId, {
+        opencode_session_id: connectResult.sessionId
+      })
+
+      // Set status tracking so the global listener can compute completion badges
+      messageSendTimes.set(sessionId, Date.now())
+      lastSendMode.set(sessionId, mode)
+      useWorktreeStatusStore
+        .getState()
+        .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
+
+      // Send the prompt — apply plan mode prefix for opencode SDK
+      if (promptText.trim()) {
+        const skipPrefix = agentSdk === 'claude-code' || agentSdk === 'codex'
+        const modePrefix = mode === 'plan' && !skipPrefix ? PLAN_MODE_PREFIX : ''
+        const fullPrompt = modePrefix + promptText.trim()
+
+        // Resolve model from the freshly-created session (mirrors SessionView.getModelForRequests)
+        const sessionState = useSessionStore.getState()
+        let sessionModel: { providerID: string; modelID: string; variant?: string } | undefined
+        for (const sessions of sessionState.sessionsByWorktree.values()) {
+          const found = sessions.find((s) => s.id === sessionId)
+          if (found?.model_provider_id && found.model_id) {
+            sessionModel = {
+              providerID: found.model_provider_id,
+              modelID: found.model_id,
+              variant: found.model_variant ?? undefined
+            }
+            break
+          }
+        }
+        if (!sessionModel) {
+          sessionModel = resolveModelForSdk(agentSdk) ?? undefined
+        }
+
+        await window.opencodeOps.prompt(worktree.path, connectResult.sessionId, [
+          { type: 'text', text: fullPrompt }
+        ], sessionModel)
+      }
     } catch {
       toast.error('Failed to start session')
     } finally {
@@ -234,10 +286,8 @@ export function WorktreePickerModal({
     createSession,
     mode,
     promptText,
-    setPendingMessage,
     updateTicket,
     ticket.id,
-    selectWorktree,
     onSendComplete,
     onOpenChange
   ])

@@ -34,6 +34,8 @@ const unescapeXmlAttr = (s: string): string =>
 
 // ── Regex patterns ──────────────────────────────────────────────────
 const TICKET_RE = /<ticket\s+title="([^"]*)">\n?([\s\S]*?)\n?<\/ticket>/g
+// NOTE: attribute order is significant — must be author, file, line.
+// All producers in SessionView.tsx emit them in this order.
 const PR_COMMENT_RE =
   /<pr-comment\s+author="([^"]*)"\s+file="([^"]*)"\s+line="([^"]*)">\n?([\s\S]*?)\n?<\/pr-comment>/g
 const ATTACHED_FILES_RE = /<attached_files>\n?([\s\S]*?)\n?<\/attached_files>/g

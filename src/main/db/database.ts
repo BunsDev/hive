@@ -821,7 +821,7 @@ export class DatabaseService {
       status: 'active',
       opencode_session_id: data.opencode_session_id ?? null,
       agent_sdk: data.agent_sdk ?? 'opencode',
-      mode: 'build',
+      mode: data.mode ?? 'build',
       model_provider_id: data.model_provider_id ?? null,
       model_id: data.model_id ?? null,
       model_variant: data.model_variant ?? null,

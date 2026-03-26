@@ -286,7 +286,8 @@ export const useKanbanStore = create<KanbanState>()(
                   get()
                     .updateTicket(ticket.id, projectId, {
                       current_session_id: event.newSessionId,
-                      plan_ready: false
+                      plan_ready: false,
+                      mode: 'build'
                     })
                     .catch(() => {})
                 }

@@ -14,7 +14,8 @@ import {
   Send,
   Zap,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  Bolt
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -36,6 +37,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useProjectStore } from '@/stores/useProjectStore'
+import { resolveModelForSdk } from '@/stores/useSettingsStore'
 import { notifyKanbanSessionSync } from '@/stores/store-coordination'
 import { messageSendTimes, lastSendMode } from '@/lib/message-send-times'
 import { PLAN_MODE_PREFIX } from '@/lib/constants'
@@ -72,7 +74,7 @@ function findWorktreePathById(worktreeId: string): string | null {
 
 /** Find a session by ID across worktree and connection session maps */
 function findSessionById(sessionId: string): {
-  session: { id: string; worktree_id: string | null; opencode_session_id: string | null }
+  session: { id: string; worktree_id: string | null; opencode_session_id: string | null; agent_sdk: string }
   worktreePath: string | null
 } | null {
   const sessionStore = useSessionStore.getState()
@@ -93,6 +95,36 @@ function findSessionById(sessionId: string): {
   return null
 }
 
+/** Resolve the model to use for a session's next prompt (mirrors SessionView.getModelForRequests) */
+function resolveSessionModel(
+  sessionId: string
+): { providerID: string; modelID: string; variant?: string } | undefined {
+  const state = useSessionStore.getState()
+  // Search both worktree and connection session maps
+  let session: { model_provider_id: string | null; model_id: string | null; model_variant: string | null; agent_sdk: string } | null = null
+  for (const sessions of state.sessionsByWorktree.values()) {
+    const found = sessions.find((s) => s.id === sessionId)
+    if (found) { session = found; break }
+  }
+  if (!session) {
+    for (const sessions of state.sessionsByConnection.values()) {
+      const found = sessions.find((s) => s.id === sessionId)
+      if (found) { session = found; break }
+    }
+  }
+  // Session has an explicit model — use it
+  if (session?.model_provider_id && session.model_id) {
+    return {
+      providerID: session.model_provider_id,
+      modelID: session.model_id,
+      variant: session.model_variant ?? undefined
+    }
+  }
+  // Fall back to per-provider default for this session's SDK
+  const agentSdk = session?.agent_sdk ?? 'opencode'
+  return resolveModelForSdk(agentSdk) ?? undefined
+}
+
 /** Send a followup prompt to an existing session and update ticket mode */
 async function sendFollowupToSession(opts: {
   sessionId: string
@@ -107,7 +139,13 @@ async function sendFollowupToSession(opts: {
 
   const { session, worktreePath } = result
 
-  const modePrefix = opts.followUpMode === 'plan' ? PLAN_MODE_PREFIX : ''
+  // Set session mode so the agent SDK knows we're in plan mode (matches Tab toggle in SessionView).
+  // This updates modeBySession, persists to DB, and applies mode-specific default model.
+  await useSessionStore.getState().setSessionMode(opts.sessionId, opts.followUpMode)
+
+  // Claude Code & Codex handle plan mode via the SDK — don't prepend the text prefix
+  const skipPrefix = session.agent_sdk === 'claude-code' || session.agent_sdk === 'codex'
+  const modePrefix = opts.followUpMode === 'plan' && !skipPrefix ? PLAN_MODE_PREFIX : ''
   const fullPrompt = modePrefix + opts.prompt
 
   if (worktreePath && session.opencode_session_id) {
@@ -117,12 +155,15 @@ async function sendFollowupToSession(opts: {
       .getState()
       .setSessionStatus(opts.sessionId, opts.followUpMode === 'plan' ? 'planning' : 'working')
 
+    // Resolve model AFTER setSessionMode (which may have applied a mode-specific default)
+    const model = resolveSessionModel(opts.sessionId)
+
     await window.opencodeOps.prompt(worktreePath, session.opencode_session_id, [
       { type: 'text', text: fullPrompt }
-    ])
+    ], model)
   }
 
-  await opts.updateTicket(opts.ticketId, opts.projectId, { mode: opts.followUpMode })
+  await opts.updateTicket(opts.ticketId, opts.projectId, { mode: opts.followUpMode, plan_ready: false })
 }
 
 /** Determine what mode the modal should operate in */
@@ -255,6 +296,7 @@ function KanbanTicketModalContent({
           onClose={onClose}
           pendingPlan={pendingPlan}
           sessionRecord={sessionRecord}
+          updateTicket={updateTicket}
         />
       )
     case 'review':
@@ -577,7 +619,8 @@ function PlanReviewModeContent({
   ticket,
   onClose,
   pendingPlan,
-  sessionRecord
+  sessionRecord,
+  updateTicket
 }: {
   ticket: KanbanTicket
   onClose: () => void
@@ -588,10 +631,98 @@ function PlanReviewModeContent({
     project_id: string
     agent_sdk: string
   } | null
+  updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
 }) {
   const [isActioning, setIsActioning] = useState(false)
+  const [followUpText, setFollowUpText] = useState('')
+  const [followUpMode, setFollowUpMode] = useState<FollowUpMode>('plan')
+  const [isSending, setIsSending] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const planContent = pendingPlan?.planContent ?? ticket.description ?? ''
+
+  const toggleMode = useCallback(() => {
+    setFollowUpMode((prev) => (prev === 'build' ? 'plan' : 'build'))
+  }, [])
+
+  // Tab key toggles mode
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const modal = document.querySelector('[data-testid="kanban-ticket-modal"]')
+        if (modal?.contains(document.activeElement)) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          toggleMode()
+        }
+      }
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [toggleMode])
+
+  // ── Send followup (reject pending plan + iterate) ────────────────
+  const handleSendFollowup = useCallback(async () => {
+    if (!followUpText.trim() || !ticket.current_session_id || isSending) return
+    setIsSending(true)
+
+    try {
+      const sessionId = ticket.current_session_id
+      const feedback = followUpText.trim()
+      const isClaudeCode = sessionRecord?.agent_sdk === 'claude-code'
+
+      // Reject the pending plan before sending the followup (mirrors SessionView)
+      if (pendingPlan) {
+        useSessionStore.getState().clearPendingPlan(sessionId)
+        useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+
+        if (isClaudeCode && sessionRecord?.worktree_id) {
+          const worktreePath = findWorktreePathById(sessionRecord.worktree_id)
+          if (worktreePath) {
+            await window.opencodeOps.planReject(
+              worktreePath,
+              sessionId,
+              feedback,
+              pendingPlan.requestId
+            )
+          }
+          // planReject already sends the feedback as the next prompt for Claude Code
+          await updateTicket(ticket.id, ticket.project_id, { plan_ready: false, mode: 'plan' })
+          toast.success('Plan rejected with feedback')
+          onClose()
+          return
+        }
+      }
+
+      // For non-Claude Code (or no pending plan): send as a regular followup
+      await sendFollowupToSession({
+        sessionId,
+        prompt: feedback,
+        followUpMode,
+        ticketId: ticket.id,
+        projectId: ticket.project_id,
+        updateTicket
+      })
+
+      toast.success('Followup sent')
+      onClose()
+    } catch {
+      toast.error('Failed to send followup')
+    } finally {
+      setIsSending(false)
+    }
+  }, [followUpText, followUpMode, ticket, isSending, pendingPlan, sessionRecord, updateTicket, onClose])
+
+  // Enter sends, Shift+Enter for newline
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSendFollowup()
+      }
+    },
+    [handleSendFollowup]
+  )
 
   // ── Implement handler ─────────────────────────────────────────────
   const handleImplement = useCallback(async () => {
@@ -606,6 +737,9 @@ function PlanReviewModeContent({
       lastSendMode.set(sessionId, 'build')
       useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
       messageSendTimes.set(sessionId, Date.now())
+
+      // Clear plan_ready badge — ticket is back to working
+      await useKanbanStore.getState().updateTicket(ticket.id, ticket.project_id, { plan_ready: false, mode: 'build' })
 
       // For opencode agents, approve the plan if there's a pending one
       if (pendingPlan && sessionRecord?.worktree_id) {
@@ -646,6 +780,13 @@ function PlanReviewModeContent({
       sessionStore.setPendingMessage(result.session.id, handoffPrompt)
       sessionStore.setActiveSession(result.session.id)
 
+      // Clear plan_ready badge and link to new session
+      await useKanbanStore.getState().updateTicket(ticket.id, ticket.project_id, {
+        current_session_id: result.session.id,
+        plan_ready: false,
+        mode: 'build'
+      })
+
       toast.success('Handoff session created')
       onClose()
     } catch {
@@ -655,7 +796,39 @@ function PlanReviewModeContent({
     }
   }, [ticket, isActioning, planContent, onClose])
 
-  // ── Supercharge handler ───────────────────────────────────────────
+  // ── Shared: eagerly connect, send /using-superpowers, queue follow-up for global listener ──
+  const eagerSuperchargeStart = useCallback(async (
+    worktreePath: string,
+    newSessionId: string
+  ) => {
+    // Connect to OpenCode
+    const connectResult = await window.opencodeOps.connect(worktreePath, newSessionId)
+    if (!connectResult.success || !connectResult.sessionId) return
+
+    // Persist the opencode session ID to Zustand + DB
+    useSessionStore.getState().setOpenCodeSessionId(newSessionId, connectResult.sessionId)
+    await window.db.session.update(newSessionId, {
+      opencode_session_id: connectResult.sessionId
+    })
+
+    // Queue the follow-up for the global idle listener to dispatch after /using-superpowers completes
+    useSessionStore.getState().setPendingFollowUpMessages(newSessionId, [
+      'use the subagent development skill to implement the following plan:\n' + planContent
+    ])
+
+    // Set status tracking
+    messageSendTimes.set(newSessionId, Date.now())
+    lastSendMode.set(newSessionId, 'build')
+    useWorktreeStatusStore.getState().setSessionStatus(newSessionId, 'working')
+
+    // Send /using-superpowers — global listener handles follow-up on idle
+    const model = resolveSessionModel(newSessionId)
+    await window.opencodeOps.prompt(worktreePath, connectResult.sessionId, [
+      { type: 'text', text: '/using-superpowers' }
+    ], model)
+  }, [planContent])
+
+  // ── Supercharge handler (new branch) ────────────────────────────
   const handleSupercharge = useCallback(async () => {
     if (!ticket.current_session_id || !ticket.worktree_id || isActioning) return
     setIsActioning(true)
@@ -701,10 +874,6 @@ function PlanReviewModeContent({
 
       const newSessionId = sessionResult.session.id
       await sessionStore.setSessionMode(newSessionId, 'build')
-      sessionStore.setPendingMessage(newSessionId, '/using-superpowers')
-      sessionStore.setPendingFollowUpMessages(newSessionId, [
-        'use the subagent development skill to implement the following plan:\n' + planContent
-      ])
 
       // Notify kanban store: supercharge re-attaches ticket to new session
       notifyKanbanSessionSync(sessionId, {
@@ -712,14 +881,62 @@ function PlanReviewModeContent({
         newSessionId
       })
 
-      toast.success('Supercharge session created')
+      toast.success('Supercharge session started')
       onClose()
+
+      // Eagerly connect + send /using-superpowers in background; follow-up dispatched by global listener
+      await eagerSuperchargeStart(dupResult.worktree.path, newSessionId)
     } catch {
       toast.error('Failed to supercharge')
     } finally {
       setIsActioning(false)
     }
-  }, [ticket, isActioning, planContent, onClose])
+  }, [ticket, isActioning, planContent, onClose, eagerSuperchargeStart])
+
+  // ── Supercharge Local handler (same worktree, no duplication) ───
+  const handleSuperchargeLocal = useCallback(async () => {
+    if (!ticket.current_session_id || !ticket.worktree_id || isActioning) return
+    setIsActioning(true)
+
+    try {
+      const sessionId = ticket.current_session_id
+      useSessionStore.getState().clearPendingPlan(sessionId)
+      useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+
+      const worktreePath = findWorktreePathById(ticket.worktree_id)
+      if (!worktreePath) {
+        toast.error('Could not find worktree path')
+        return
+      }
+
+      // Create a new session in the SAME worktree
+      const sessionStore = useSessionStore.getState()
+      const sessionResult = await sessionStore.createSession(ticket.worktree_id, ticket.project_id)
+      if (!sessionResult.success || !sessionResult.session) {
+        toast.error(sessionResult.error ?? 'Failed to create local supercharge session')
+        return
+      }
+
+      const newSessionId = sessionResult.session.id
+      await sessionStore.setSessionMode(newSessionId, 'build')
+
+      // Re-attach ticket to the new session, clear plan_ready
+      notifyKanbanSessionSync(sessionId, {
+        type: 'supercharge',
+        newSessionId
+      })
+
+      toast.success('Local supercharge session started')
+      onClose()
+
+      // Eagerly connect + send /using-superpowers in background; follow-up dispatched by global listener
+      await eagerSuperchargeStart(worktreePath, newSessionId)
+    } catch {
+      toast.error('Failed to supercharge locally')
+    } finally {
+      setIsActioning(false)
+    }
+  }, [ticket, isActioning, planContent, onClose, eagerSuperchargeStart])
 
   return (
     <DialogContent data-testid="kanban-ticket-modal" className="sm:max-w-2xl max-h-[80vh] flex flex-col">
@@ -743,15 +960,54 @@ function PlanReviewModeContent({
         <MarkdownRenderer content={planContent} />
       </div>
 
-      <DialogFooter className="flex-shrink-0">
-        <Button
-          type="button"
-          variant="outline"
-          data-testid="plan-review-cancel-btn"
-          onClick={onClose}
-        >
-          Cancel
-        </Button>
+      {/* Followup input — iterate on the plan */}
+      <div className="space-y-1.5 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Followup
+          </label>
+          <button
+            data-testid="plan-review-mode-toggle"
+            data-mode={followUpMode}
+            type="button"
+            onClick={toggleMode}
+            className={cn(
+              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+              'border select-none',
+              followUpMode === 'build'
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-500 hover:bg-blue-500/20'
+                : 'bg-violet-500/10 border-violet-500/30 text-violet-500 hover:bg-violet-500/20'
+            )}
+          >
+            {followUpMode === 'build' ? <Hammer className="h-3 w-3" /> : <Map className="h-3 w-3" />}
+            <span>{followUpMode === 'build' ? 'Build' : 'Plan'}</span>
+          </button>
+        </div>
+        <div className="flex gap-2 items-end">
+          <Textarea
+            ref={textareaRef}
+            data-testid="plan-review-followup-input"
+            value={followUpText}
+            onChange={(e) => setFollowUpText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={2}
+            placeholder="Iterate on the plan… (Enter to send)"
+            className="resize-y font-mono text-xs leading-relaxed flex-1"
+          />
+          <Button
+            type="button"
+            data-testid="plan-review-send-followup-btn"
+            disabled={isSending || !followUpText.trim()}
+            onClick={handleSendFollowup}
+            size="icon"
+            className="shrink-0 h-8 w-8"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <DialogFooter className="flex-shrink-0 gap-1.5">
         <Button
           type="button"
           data-testid="plan-review-implement-btn"
@@ -775,13 +1031,24 @@ function PlanReviewModeContent({
         </Button>
         <Button
           type="button"
+          data-testid="plan-review-supercharge-local-btn"
+          disabled={isActioning}
+          onClick={handleSuperchargeLocal}
+          className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+        >
+          <Bolt className="h-3.5 w-3.5" />
+          Supercharge
+        </Button>
+        <Button
+          type="button"
           data-testid="plan-review-supercharge-btn"
           disabled={isActioning}
           onClick={handleSupercharge}
           className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+          variant="outline"
         >
           <Zap className="h-3.5 w-3.5" />
-          Supercharge
+          Supercharge (new branch)
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -862,6 +1129,17 @@ function ReviewModeContent({
     }
   }, [followUpText, followUpMode, ticket, isSending, moveTicket, updateTicket, onClose])
 
+  // Enter sends, Shift+Enter for newline
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSendFollowup()
+      }
+    },
+    [handleSendFollowup]
+  )
+
   // ── Move to Done ──────────────────────────────────────────────────
   const handleMoveToDone = useCallback(async () => {
     try {
@@ -933,8 +1211,9 @@ function ReviewModeContent({
           data-testid="review-followup-input"
           value={followUpText}
           onChange={(e) => setFollowUpText(e.target.value)}
-          rows={3}
-          placeholder="Provide followup instructions..."
+          onKeyDown={handleKeyDown}
+          rows={2}
+          placeholder="Provide followup instructions… (Enter to send)"
           className="resize-y font-mono text-xs leading-relaxed"
         />
       </div>
@@ -1031,6 +1310,17 @@ function ErrorModeContent({
     }
   }, [followUpText, followUpMode, ticket, isSending, updateTicket, onClose])
 
+  // Enter sends, Shift+Enter for newline
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSendFollowup()
+      }
+    },
+    [handleSendFollowup]
+  )
+
   const ModeIcon = followUpMode === 'build' ? Hammer : Map
   const modeLabel = followUpMode === 'build' ? 'Build' : 'Plan'
 
@@ -1095,8 +1385,9 @@ function ErrorModeContent({
           data-testid="error-followup-input"
           value={followUpText}
           onChange={(e) => setFollowUpText(e.target.value)}
-          rows={3}
-          placeholder="Describe the fix or retry instructions..."
+          onKeyDown={handleKeyDown}
+          rows={2}
+          placeholder="Describe the fix or retry instructions… (Enter to send)"
           className="resize-y font-mono text-xs leading-relaxed"
         />
       </div>
