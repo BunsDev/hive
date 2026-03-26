@@ -584,7 +584,7 @@ describe('Session 9: Worktree Picker Modal', () => {
 
   // ── Source branch picker tests ──────────────────────────────────
 
-  test('shows source branch selector when New worktree is selected', () => {
+  test('shows source branch selector when New worktree is selected', async () => {
     render(
       <WorktreePickerModal
         ticket={defaultTicket}
@@ -598,7 +598,9 @@ describe('Session 9: Worktree Picker Modal', () => {
     expect(screen.queryByTestId('source-branch-trigger')).not.toBeInTheDocument()
 
     // Click "New worktree"
-    fireEvent.click(screen.getByTestId('worktree-item-new'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-new'))
+    })
 
     // Source branch trigger should now be visible with default branch name
     const trigger = screen.getByTestId('source-branch-trigger')
@@ -606,7 +608,27 @@ describe('Session 9: Worktree Picker Modal', () => {
     expect(trigger).toHaveTextContent('main')
   })
 
-  test('source branch defaults to default worktree branch name', () => {
+  test('source branch defaults to default worktree branch name', async () => {
+    // Override worktrees so the default worktree has a non-'main' branch
+    act(() => {
+      useWorktreeStore.setState({
+        worktreesByProject: new Map([
+          [
+            'proj-1',
+            [
+              makeWorktree({ id: 'wt-1', name: 'feature-auth' }),
+              makeWorktree({
+                id: 'wt-default',
+                name: 'develop',
+                is_default: true,
+                branch_name: 'develop'
+              })
+            ]
+          ]
+        ])
+      })
+    })
+
     render(
       <WorktreePickerModal
         ticket={defaultTicket}
@@ -617,11 +639,13 @@ describe('Session 9: Worktree Picker Modal', () => {
     )
 
     // Click "New worktree"
-    fireEvent.click(screen.getByTestId('worktree-item-new'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-new'))
+    })
 
-    // The trigger should show "main" (the branch_name of the default worktree wt-default)
+    // The trigger should show "develop" (the branch_name of the default worktree)
     const trigger = screen.getByTestId('source-branch-trigger')
-    expect(trigger).toHaveTextContent('main')
+    expect(trigger).toHaveTextContent('develop')
   })
 
   test('source branch selector loads branches lazily', async () => {

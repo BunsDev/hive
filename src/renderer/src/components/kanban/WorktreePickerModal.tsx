@@ -118,11 +118,18 @@ export function WorktreePickerModal({
 
   // ── Lazy branch loading ────────────────────────────────────────
   useEffect(() => {
+    // branches.length guard: only fetch once per modal-open cycle (reset clears branches on close)
     if (!isNewWorktree || !project?.path || branches.length > 0) return
     setBranchesLoading(true)
     window.gitOps.listBranchesWithStatus(project.path)
-      .then(result => { if (result.success) setBranches(result.branches) })
+      .then((result) => {
+        if (result.success) setBranches(result.branches)
+      })
+      .catch(() => {
+        // IPC failure — branches stay empty, user sees "No branches found"
+      })
       .finally(() => setBranchesLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewWorktree, project?.path])
 
   // ── Reset state when modal opens ────────────────────────────────
@@ -429,6 +436,7 @@ export function WorktreePickerModal({
                   <Popover open={branchPopoverOpen} onOpenChange={setBranchPopoverOpen}>
                     <PopoverTrigger asChild>
                       <button
+                        type="button"
                         data-testid="source-branch-trigger"
                         className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md border border-border/60 hover:bg-muted/30 transition-colors"
                       >
@@ -464,6 +472,7 @@ export function WorktreePickerModal({
                         ) : (
                           filteredBranches.map((branch) => (
                             <button
+                              type="button"
                               key={`${branch.name}-${branch.isRemote}`}
                               data-testid={`source-branch-${branch.name}`}
                               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left hover:bg-muted/30 transition-colors"

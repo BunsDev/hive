@@ -256,28 +256,48 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   },
 
   // Create a new worktree from an existing branch
-  createWorktreeFromBranch: async (projectId: string, projectPath: string, projectName: string, branchName: string) => {
+  createWorktreeFromBranch: async (
+    projectId: string,
+    projectPath: string,
+    projectName: string,
+    branchName: string
+  ) => {
     set({ creatingForProjectId: projectId })
     try {
       const result = await window.worktreeOps.createFromBranch(
-        projectId, projectPath, projectName, branchName
+        projectId,
+        projectPath,
+        projectName,
+        branchName
       )
+
       if (!result.success || !result.worktree) {
         set({ creatingForProjectId: null })
         return { success: false, error: result.error || 'Failed to create worktree' }
       }
+
       // Add to store state (same pattern as createWorktree)
       set((state) => {
         const newMap = new Map(state.worktreesByProject)
         const existing = newMap.get(projectId) || []
         newMap.set(projectId, [result.worktree!, ...existing])
-        return { worktreesByProject: newMap, selectedWorktreeId: result.worktree!.id, creatingForProjectId: null }
+        return {
+          worktreesByProject: newMap,
+          selectedWorktreeId: result.worktree!.id,
+          creatingForProjectId: null
+        }
       })
+
+      // Fire-and-forget: run setup script if configured
       fireSetupScript(projectId, result.worktree!.id, result.worktree!.path)
+
       return { success: true, worktree: result.worktree }
     } catch (error) {
       set({ creatingForProjectId: null })
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to create worktree' }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create worktree'
+      }
     }
   },
 
