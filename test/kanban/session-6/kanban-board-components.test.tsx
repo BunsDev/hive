@@ -254,9 +254,9 @@ describe('Session 6: Board Components', () => {
     const { container } = render(<KanbanTicketCard ticket={ticket} />)
 
     const card = container.querySelector('[data-testid="kanban-ticket-ticket-1"]') as HTMLElement
-    // Verify gradient border is applied for active build ticket
-    expect(card?.hasAttribute('data-gradient-border')).toBe(true)
-    expect(card?.style.getPropertyValue('--grad-bright')).toBe('rgb(59 130 246)')
+    // Verify solid blue border + progress bar for active build ticket
+    expect(card?.className).toMatch(/blue/)
+    expect(card?.querySelector('[data-testid="kanban-ticket-progress"]')).toBeTruthy()
   })
 
   test('KanbanTicketCard applies pulsing violet border for active plan ticket', () => {
@@ -298,9 +298,9 @@ describe('Session 6: Board Components', () => {
     const { container } = render(<KanbanTicketCard ticket={ticket} />)
 
     const card = container.querySelector('[data-testid="kanban-ticket-ticket-1"]') as HTMLElement
-    // Verify gradient border is applied for active plan ticket
-    expect(card?.hasAttribute('data-gradient-border')).toBe(true)
-    expect(card?.style.getPropertyValue('--grad-bright')).toBe('rgb(139 92 246)')
+    // Verify solid violet border + progress bar for active plan ticket
+    expect(card?.className).toMatch(/violet/)
+    expect(card?.querySelector('[data-testid="kanban-ticket-progress"]')).toBeTruthy()
   })
 
   test('KanbanTicketCard applies static violet border + Plan ready badge when plan_ready', () => {

@@ -20,83 +20,12 @@ import {
   AlertDialogCancel
 } from '@/components/ui/alert-dialog'
 import { WorktreePickerModal } from '@/components/kanban/WorktreePickerModal'
+import { IndeterminateProgressBar } from '@/components/sessions/IndeterminateProgressBar'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { setKanbanDragData, useKanbanStore } from '@/stores/useKanbanStore'
+import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import type { KanbanTicket } from '../../../../main/db/types'
-
-// ── Pulsing border keyframes (injected once) ────────────────────────
-const STYLE_ID = 'kanban-pulse-keyframes'
-if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
-  const style = document.createElement('style')
-  style.id = STYLE_ID
-  style.textContent = `
-    @property --kanban-angle {
-      syntax: "<angle>";
-      inherits: false;
-      initial-value: 0deg;
-    }
-
-    @keyframes kanban-gradient-rotate {
-      to { --kanban-angle: 360deg; }
-    }
-
-    [data-gradient-border] {
-      position: relative;
-      isolation: isolate;
-    }
-
-    [data-gradient-border]::before {
-      content: '';
-      position: absolute;
-      inset: -1px;
-      border-radius: inherit;
-      padding: 1px;
-      background: conic-gradient(
-        from var(--kanban-angle) at 50% 50%,
-        var(--grad-dim) 0%,
-        var(--grad-bright) 12.5%,
-        var(--grad-dim) 25%,
-        transparent 50%,
-        var(--grad-dim) 75%,
-        var(--grad-bright) 87.5%,
-        var(--grad-dim) 100%
-      );
-      -webkit-mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
-      mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      animation: kanban-gradient-rotate 3s linear infinite;
-      pointer-events: none;
-    }
-
-    [data-gradient-border]::after {
-      content: '';
-      position: absolute;
-      inset: -4px;
-      border-radius: inherit;
-      background: conic-gradient(
-        from var(--kanban-angle) at 50% 50%,
-        transparent 0%,
-        var(--grad-bright) 12.5%,
-        transparent 25%,
-        transparent 50%,
-        var(--grad-bright) 62.5%,
-        transparent 75%
-      );
-      filter: blur(8px);
-      opacity: 0.25;
-      animation: kanban-gradient-rotate 3s linear infinite;
-      pointer-events: none;
-      z-index: -1;
-    }
-  `
-  document.head.appendChild(style)
-}
 
 interface KanbanTicketCardProps {
   ticket: KanbanTicket
@@ -147,22 +76,29 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
     )
   )
 
+  // ── Real-time "agent is busy" from worktree status store ────────
+  const isBusy = useWorktreeStatusStore(
+    useCallback(
+      (state) => {
+        if (!ticket.current_session_id) return false
+        const entry = state.sessionStatuses[ticket.current_session_id]
+        return entry?.status === 'working' || entry?.status === 'planning'
+      },
+      [ticket.current_session_id]
+    )
+  )
+
   const isActive = sessionStatus === 'active'
   const isError = sessionStatus === 'error'
   const hasAttachments = ticket.attachments.length > 0
 
   // ── Border state computation ────────────────────────────────────
-  // gradient-*  → session actively working (rotating gradient border)
-  // static-*    → session attached but idle / plan ready (solid color border)
-  // default     → no session attached
   const borderState = useMemo(() => {
-    if (isActive && ticket.mode === 'build') return 'gradient-blue'
-    if (isActive && ticket.mode === 'plan') return 'gradient-violet'
-    if (ticket.plan_ready) return 'static-violet'
-    if (ticket.current_session_id && ticket.mode === 'build') return 'static-blue'
-    if (ticket.current_session_id && ticket.mode === 'plan') return 'static-violet'
+    if (ticket.plan_ready) return 'violet'
+    if (ticket.current_session_id && ticket.mode === 'build') return 'blue'
+    if (ticket.current_session_id && ticket.mode === 'plan') return 'violet'
     return 'default'
-  }, [isActive, ticket.mode, ticket.plan_ready, ticket.current_session_id])
+  }, [ticket.mode, ticket.plan_ready, ticket.current_session_id])
 
   // ── Drag handlers ──────────────────────────────────────────────
   const handleDragStart = useCallback(
@@ -245,11 +181,6 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
         <ContextMenuTrigger asChild>
           <div
             data-testid={`kanban-ticket-${ticket.id}`}
-            data-gradient-border={
-              borderState === 'gradient-blue' || borderState === 'gradient-violet'
-                ? ''
-                : undefined
-            }
             draggable={true}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -259,30 +190,15 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
               'hover:bg-muted/40',
               isDragging && 'invisible',
               borderState === 'default' && 'border-border/60',
-              borderState === 'static-blue' && 'border-blue-500/60',
-              borderState === 'static-violet' && 'border-violet-500/60',
-              (borderState === 'gradient-blue' || borderState === 'gradient-violet') &&
-                'border-transparent'
+              borderState === 'blue' && 'border-blue-500/60',
+              borderState === 'violet' && 'border-violet-500/60'
             )}
-            style={
-              borderState === 'gradient-blue'
-                ? ({
-                    '--grad-bright': 'rgb(59 130 246)',
-                    '--grad-dim': 'rgb(59 130 246 / 0.3)'
-                  } as React.CSSProperties)
-                : borderState === 'gradient-violet'
-                  ? ({
-                      '--grad-bright': 'rgb(139 92 246)',
-                      '--grad-dim': 'rgb(139 92 246 / 0.3)'
-                    } as React.CSSProperties)
-                  : undefined
-            }
           >
             {/* Title */}
             <p className="text-sm font-medium leading-snug text-foreground">{ticket.title}</p>
 
-            {/* Badges row */}
-            {(hasAttachments || worktreeName || ticket.plan_ready || isError) && (
+            {/* Badges + progress row */}
+            {(hasAttachments || worktreeName || ticket.plan_ready || isError || isBusy) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {/* Attachment badge */}
                 {hasAttachments && (
@@ -314,6 +230,13 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
                   <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 border border-red-500/30 px-2 py-0.5 text-[11px] font-medium text-red-500">
                     <AlertCircle className="h-3 w-3" />
                     Error
+                  </span>
+                )}
+
+                {/* Progress bar — pushed right, shown when session is actively working */}
+                {isBusy && ticket.mode && (
+                  <span data-testid="kanban-ticket-progress" className="ml-auto">
+                    <IndeterminateProgressBar mode={ticket.mode} className="w-20" />
                   </span>
                 )}
               </div>

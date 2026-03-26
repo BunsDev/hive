@@ -362,9 +362,8 @@ describe('Session 12: Simple Board Mode', () => {
       '[data-testid="kanban-ticket-t-flow"]'
     ) as HTMLElement
 
-    // Flow ticket should retain gradient border
-    expect(card?.hasAttribute('data-gradient-border')).toBe(true)
-    expect(card?.style.getPropertyValue('--grad-bright')).toBe('rgb(59 130 246)')
+    // Flow ticket should retain solid blue border (progress bar requires worktree status 'working')
+    expect(card?.className).toMatch(/blue/)
   })
 
   // ── Assign to worktree conversion ────────────────────────────────
