@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef, Fragment } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { motion } from 'motion/react'
 import { ChevronRight, ChevronDown, Plus, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
@@ -16,9 +17,17 @@ import {
   AlertDialogAction,
   AlertDialogCancel
 } from '@/components/ui/alert-dialog'
-import { useKanbanStore, getKanbanDragData, setKanbanDragData } from '@/stores/useKanbanStore'
+import { useKanbanStore, getKanbanDragData, setKanbanDragData, suppressLayoutAnimation, isLayoutAnimationSuppressed } from '@/stores/useKanbanStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import type { KanbanTicket, KanbanTicketColumn as ColumnType } from '../../../../main/db/types'
+
+// ── Layout animation spring ─────────────────────────────────────────
+const CARD_LAYOUT_SPRING = {
+  type: 'spring' as const,
+  stiffness: 350,
+  damping: 30,
+  mass: 0.8,
+}
 
 // ── Column display names ────────────────────────────────────────────
 const COLUMN_TITLES: Record<ColumnType, string> = {
@@ -118,6 +127,9 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
       setIsDragOver(false)
       setDropIndex(null)
 
+      // Suppress layout animation for drag-and-drop (instant placement across all columns)
+      suppressLayoutAnimation()
+
       // Read drag data from module-level state (avoids DataTransfer issues in Electron)
       const dragData = getKanbanDragData()
       if (!dragData) return
@@ -174,6 +186,8 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
   // ── Backward drag confirmation handler ───────────────────────────
   const handleConfirmBackwardDrag = useCallback(async () => {
     if (!pendingBackwardDrag) return
+    // Suppress layout animation for drag-and-drop (instant placement across all columns)
+    suppressLayoutAnimation()
     const { ticketId, targetIndex } = pendingBackwardDrag
 
     const store = useKanbanStore.getState()
@@ -295,7 +309,8 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
 
       {/* Drop area — scrollable card list, doubles as drop target */}
       {!(isDoneColumn && isCollapsed) && (
-        <div
+        <motion.div
+          layoutScroll
           data-testid={`kanban-drop-area-${column}`}
           className="flex flex-1 flex-col gap-2 overflow-y-auto px-1 pb-2 rounded-md min-h-[60px]"
         >
@@ -322,12 +337,18 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
           ) : (
             <>
               {tickets.map((ticket, index) => (
-                <Fragment key={ticket.id}>
+                <motion.div
+                  key={ticket.id}
+                  data-card-index={index}
+                  layoutId={ticket.id}
+                  layout
+                  transition={isLayoutAnimationSuppressed() ? { duration: 0 } : CARD_LAYOUT_SPRING}
+                >
                   {isDragOver && dropIndex === index && dropIndicator}
                   <div data-card-index={index} className={draggingTicketId === ticket.id ? 'h-0 min-h-0 overflow-hidden' : undefined}>
                     <KanbanTicketCard ticket={ticket} index={index} />
                   </div>
-                </Fragment>
+                </motion.div>
               ))}
               {isDragOver && dropIndex === tickets.length && dropIndicator}
 
@@ -344,7 +365,7 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
               )}
             </>
           )}
-        </div>
+        </motion.div>
       )}
 
       {/* Ticket creation modal — To Do column */}
