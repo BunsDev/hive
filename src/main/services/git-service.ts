@@ -1181,15 +1181,14 @@ export class GitService {
   async duplicateWorktree(
     sourceBranch: string,
     sourceWorktreePath: string,
-    projectName: string
+    projectName: string,
+    nameHint?: string
   ): Promise<CreateWorktreeResult> {
     try {
-      // 1. Extract base name (strip -vN suffix)
-      const baseName = sourceBranch.replace(/-v\d+$/, '')
       const projectWorktreesDir = this.ensureWorktreesDir(projectName)
       const MAX_ATTEMPTS = 3
 
-      // 2-4. Find next version number and create worktree, with retry on collision
+      // 2-4. Find a unique branch name and create worktree, with retry on collision
       let newBranchName = ''
       let worktreePath = ''
       let created = false
@@ -1197,17 +1196,33 @@ export class GitService {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Re-fetch on every attempt so retries see the latest state
         const allBranches = await this.getAllBranches()
-        const versionPattern = new RegExp(
-          `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-v(\\d+)$`
-        )
-        let maxVersion = 1 // means first dup will be v2
-        for (const branch of allBranches) {
-          const match = branch.match(versionPattern)
-          if (match) {
-            maxVersion = Math.max(maxVersion, parseInt(match[1], 10))
+
+        if (nameHint) {
+          // Use nameHint with -2, -3, ... collision suffixing
+          const existingNames = new Set(allBranches)
+          newBranchName = nameHint
+          if (existingNames.has(newBranchName)) {
+            let suffix = 2
+            while (existingNames.has(`${nameHint}-${suffix}`) && suffix <= 9999) {
+              suffix += 1
+            }
+            newBranchName = `${nameHint}-${suffix}`
           }
+        } else {
+          // Default: use source branch name with -vN versioning
+          const baseName = sourceBranch.replace(/-v\d+$/, '')
+          const versionPattern = new RegExp(
+            `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-v(\\d+)$`
+          )
+          let maxVersion = 1 // means first dup will be v2
+          for (const branch of allBranches) {
+            const match = branch.match(versionPattern)
+            if (match) {
+              maxVersion = Math.max(maxVersion, parseInt(match[1], 10))
+            }
+          }
+          newBranchName = `${baseName}-v${maxVersion + 1}`
         }
-        newBranchName = `${baseName}-v${maxVersion + 1}`
         worktreePath = join(projectWorktreesDir, `${projectName}--${newBranchName}`)
 
         try {
@@ -1398,7 +1413,7 @@ export class GitService {
           const wtPath = lines.find((l) => l.startsWith('worktree '))?.replace('worktree ', '')
           if (branch === branchName && wtPath) {
             // Already checked out — duplicate it
-            return this.duplicateWorktree(branchName, wtPath, projectName)
+            return this.duplicateWorktree(branchName, wtPath, projectName, options?.nameHint)
           }
         }
       }
