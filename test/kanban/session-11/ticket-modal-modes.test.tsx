@@ -624,11 +624,17 @@ describe('Session 11: Kanban Ticket Modal Modes', () => {
         )
       })
 
-      // Verify prompt was fired (fire-and-forget)
-      expect(mockOpencodeOps.prompt).toHaveBeenCalled()
+      // Verify prompt was fired in the background
+      await waitFor(() => {
+        expect(mockOpencodeOps.prompt).toHaveBeenCalled()
+      })
 
       // Clean up: resolve the pending promise to avoid unhandled rejection
-      resolvePrompt()
+      await act(async () => {
+        resolvePrompt()
+        // Allow microtasks from resolving the promise to flush
+        await new Promise((r) => setTimeout(r, 0))
+      })
     })
 
     test('ticket store state is in_progress after sending followup', async () => {

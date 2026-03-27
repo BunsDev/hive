@@ -160,11 +160,9 @@ async function sendFollowupToSession(opts: {
     // Resolve model AFTER setSessionMode (which may have applied a mode-specific default)
     const model = resolveSessionModel(opts.sessionId)
 
-    window.opencodeOps.prompt(worktreePath, session.opencode_session_id, [
+    await window.opencodeOps.prompt(worktreePath, session.opencode_session_id, [
       { type: 'text', text: fullPrompt }
-    ], model).catch((err) => {
-      console.error('Background prompt failed:', err)
-    })
+    ], model)
   }
 
   await opts.updateTicket(opts.ticketId, opts.projectId, { mode: opts.followUpMode, plan_ready: false })
@@ -1131,25 +1129,37 @@ function ReviewModeContent({
     setIsSending(true)
 
     try {
-      await sendFollowupToSession({
-        sessionId: ticket.current_session_id,
-        prompt: followUpText.trim(),
-        followUpMode,
-        ticketId: ticket.id,
-        projectId: ticket.project_id,
-        updateTicket
-      })
-
-      // Move ticket back to in_progress
+      // Move ticket back to in_progress FIRST for immediate UI feedback.
       const kanbanStore = useKanbanStore.getState()
       const inProgressTickets = kanbanStore.getTicketsByColumn(ticket.project_id, 'in_progress')
       const sortOrder = kanbanStore.computeSortOrder(inProgressTickets, 0)
       await moveTicket(ticket.id, ticket.project_id, 'in_progress', sortOrder)
 
+      // Capture values before closing modal
+      const sessionId = ticket.current_session_id
+      const prompt = followUpText.trim()
+      const mode = followUpMode
+      const ticketId = ticket.id
+      const projectId = ticket.project_id
+
       toast.success('Followup sent')
       onClose()
+
+      // Send followup in background. sendFollowupToSession awaits the full
+      // Claude session, but the UI is already updated (ticket moved, modal
+      // closed). Errors surface via the session error pipeline.
+      sendFollowupToSession({
+        sessionId,
+        prompt,
+        followUpMode: mode,
+        ticketId,
+        projectId,
+        updateTicket
+      }).catch(() => {
+        toast.error('Failed to send followup')
+      })
     } catch {
-      toast.error('Failed to send followup')
+      toast.error('Failed to move ticket')
     } finally {
       setIsSending(false)
     }
