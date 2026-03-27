@@ -1426,6 +1426,8 @@ export class GitService {
         }
       }
 
+      const nameHint = options?.nameHint
+
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Re-fetch on every attempt so retries see the latest state
         const existingBranches = await this.getAllBranches()
@@ -1449,7 +1451,6 @@ export class GitService {
         ])
 
         // Use nameHint if provided and non-empty, otherwise fall back to breed name
-        const nameHint = options?.nameHint
         let worktreeName: string
         if (nameHint) {
           // Start with the hint; if it collides, append -2, -3, etc.
