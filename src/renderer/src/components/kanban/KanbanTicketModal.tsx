@@ -150,6 +150,10 @@ async function sendFollowupToSession(opts: {
   const modePrefix = opts.followUpMode === 'plan' && !skipPrefix ? PLAN_MODE_PREFIX : ''
   const fullPrompt = modePrefix + opts.prompt
 
+  // Reset plan_ready and mode immediately so the kanban card updates before the
+  // prompt runs (prompt may take a long time).
+  await opts.updateTicket(opts.ticketId, opts.projectId, { mode: opts.followUpMode, plan_ready: false })
+
   if (worktreePath && session.opencode_session_id) {
     messageSendTimes.set(opts.sessionId, Date.now())
     lastSendMode.set(opts.sessionId, opts.followUpMode)
@@ -164,8 +168,6 @@ async function sendFollowupToSession(opts: {
       { type: 'text', text: fullPrompt }
     ], model)
   }
-
-  await opts.updateTicket(opts.ticketId, opts.projectId, { mode: opts.followUpMode, plan_ready: false })
 }
 
 /** Determine what mode the modal should operate in */
@@ -712,24 +714,44 @@ function PlanReviewModeContent({
           }
           // planReject already sends the feedback as the next prompt for Claude Code
           await updateTicket(ticket.id, ticket.project_id, { plan_ready: false, mode: 'plan' })
+          // The clearSessionStatus above wiped the busy state. Set it back to
+          // 'planning' so the kanban card shows the progress bar while the
+          // agent processes the rejection feedback.
+          messageSendTimes.set(sessionId, Date.now())
+          lastSendMode.set(sessionId, 'plan')
+          useWorktreeStatusStore
+            .getState()
+            .setSessionStatus(sessionId, 'planning')
           toast.success('Plan rejected with feedback')
           onClose()
           return
         }
       }
 
-      // For non-Claude Code (or no pending plan): send as a regular followup
-      await sendFollowupToSession({
+      // For non-Claude Code (or no pending plan): send as a regular followup.
+      // Close modal immediately for instant UI feedback; run session in background.
+      // Mark the session as busy NOW so the kanban card shows the progress bar
+      // the moment the modal closes (sendFollowupToSession would set this too,
+      // but only after async DB calls — the card would look idle in between).
+      messageSendTimes.set(sessionId, Date.now())
+      lastSendMode.set(sessionId, followUpMode)
+      useWorktreeStatusStore
+        .getState()
+        .setSessionStatus(sessionId, followUpMode === 'plan' ? 'planning' : 'working')
+
+      toast.success('Followup sent')
+      onClose()
+
+      sendFollowupToSession({
         sessionId,
         prompt: feedback,
         followUpMode,
         ticketId: ticket.id,
         projectId: ticket.project_id,
         updateTicket
+      }).catch(() => {
+        toast.error('Failed to send followup')
       })
-
-      toast.success('Followup sent')
-      onClose()
     } catch {
       toast.error('Failed to send followup')
     } finally {
@@ -1141,6 +1163,15 @@ function ReviewModeContent({
       const mode = followUpMode
       const ticketId = ticket.id
       const projectId = ticket.project_id
+
+      // Mark the session as busy NOW so the kanban card shows the progress bar
+      // the moment the modal closes (sendFollowupToSession would set this too,
+      // but only after async DB calls — the card would look idle in between).
+      messageSendTimes.set(sessionId, Date.now())
+      lastSendMode.set(sessionId, mode)
+      useWorktreeStatusStore
+        .getState()
+        .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
 
       toast.success('Followup sent')
       onClose()
