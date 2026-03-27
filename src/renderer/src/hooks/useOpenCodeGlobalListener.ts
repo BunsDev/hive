@@ -603,10 +603,10 @@ export function useOpenCodeGlobalListener(): void {
                 dispatchSucceeded = true
 
                 // Persist follow-up for the linked kanban ticket
-                const superchargeLinkedTicket = findLinkedKanbanTicket(sessionId)
-                if (superchargeLinkedTicket) {
+                const linkedTicket = findLinkedKanbanTicket(sessionId)
+                if (linkedTicket) {
                   window.kanban.followup.create({
-                    ticket_id: superchargeLinkedTicket.id,
+                    ticket_id: linkedTicket.id,
                     content: message,
                     mode: useSessionStore.getState().getSessionMode(sessionId),
                     session_id: sessionId,

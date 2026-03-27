@@ -673,7 +673,7 @@ function PlanReviewModeContent({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [followupHistory, setFollowupHistory] = useState<Array<{
-    id: string; content: string; mode: 'build' | 'plan'; source: string; created_at: string
+    id: string; content: string; role: 'user' | 'assistant'; mode: 'build' | 'plan'; source: string; created_at: string
   }>>([])
 
   useEffect(() => {
@@ -1008,7 +1008,7 @@ function PlanReviewModeContent({
         <MarkdownRenderer content={planContent} />
       </div>
 
-      <FollowupHistory messages={followupHistory} />
+      <ConversationHistory messages={followupHistory} />
 
       {/* Followup input — iterate on the plan */}
       <div className="space-y-1.5 flex-shrink-0">
@@ -1126,7 +1126,7 @@ function ReviewModeContent({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [followupHistory, setFollowupHistory] = useState<Array<{
-    id: string; content: string; mode: 'build' | 'plan'; source: string; created_at: string
+    id: string; content: string; role: 'user' | 'assistant'; mode: 'build' | 'plan'; source: string; created_at: string
   }>>([])
 
   useEffect(() => {
@@ -1253,7 +1253,7 @@ function ReviewModeContent({
         </p>
       </div>
 
-      <FollowupHistory messages={followupHistory} />
+      <ConversationHistory messages={followupHistory} />
 
       {/* Followup input area */}
       <div className="space-y-2 flex-shrink-0">
@@ -1344,7 +1344,7 @@ function ErrorModeContent({
   const updateTicket = useKanbanStore((s) => s.updateTicket)
 
   const [followupHistory, setFollowupHistory] = useState<Array<{
-    id: string; content: string; mode: 'build' | 'plan'; source: string; created_at: string
+    id: string; content: string; role: 'user' | 'assistant'; mode: 'build' | 'plan'; source: string; created_at: string
   }>>([])
 
   useEffect(() => {
@@ -1438,7 +1438,7 @@ function ErrorModeContent({
         </p>
       </div>
 
-      <FollowupHistory messages={followupHistory} />
+      <ConversationHistory messages={followupHistory} />
 
       {/* Followup input */}
       <div className="space-y-2">
@@ -1574,13 +1574,14 @@ function QuestionModeContent({
 }
 
 // ════════════════════════════════════════════════════════════════════
-// FOLLOWUP HISTORY
+// CONVERSATION HISTORY
 // ════════════════════════════════════════════════════════════════════
 
-function FollowupHistory({ messages }: {
+function ConversationHistory({ messages }: {
   messages: Array<{
     id: string
     content: string
+    role: 'user' | 'assistant'
     mode: 'build' | 'plan'
     source: string
     created_at: string
@@ -1591,18 +1592,23 @@ function FollowupHistory({ messages }: {
   return (
     <div className="space-y-2">
       <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Previous followups
+        Conversation history
       </label>
-      <div className="max-h-40 overflow-y-auto space-y-1.5 rounded-md border border-border/40 bg-muted/10 p-2">
+      <div className="max-h-64 overflow-y-auto space-y-1.5 rounded-md border border-border/40 bg-muted/10 p-2">
         {messages.map((msg) => (
-          <div key={msg.id} className="flex items-start gap-2 text-xs">
+          <div key={msg.id} className={cn(
+            'flex items-start gap-2 text-xs',
+            msg.role === 'assistant' && 'bg-muted/30 rounded-md p-1.5 -mx-0.5'
+          )}>
             <span className={cn(
               'shrink-0 mt-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-              msg.mode === 'build'
-                ? 'bg-blue-500/10 text-blue-500'
-                : 'bg-violet-500/10 text-violet-500'
+              msg.role === 'assistant'
+                ? 'bg-emerald-500/10 text-emerald-500'
+                : msg.mode === 'build'
+                  ? 'bg-blue-500/10 text-blue-500'
+                  : 'bg-violet-500/10 text-violet-500'
             )}>
-              {msg.mode}
+              {msg.role === 'assistant' ? 'ai' : msg.mode}
             </span>
             <p className="text-foreground/80 whitespace-pre-wrap break-words flex-1 font-mono leading-relaxed">
               {msg.content}
