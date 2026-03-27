@@ -299,6 +299,16 @@ export const useKanbanStore = create<KanbanState>()(
                 break
               }
 
+              case 'implement': {
+                // Plan approved from session view — clear plan_ready, set mode to build
+                if (ticket.plan_ready || ticket.mode !== 'build') {
+                  get()
+                    .updateTicket(ticket.id, projectId, { plan_ready: false, mode: 'build' })
+                    .catch(() => {})
+                }
+                break
+              }
+
               case 'session_error': {
                 // No state change needed — ticket stays in current column.
                 // The card reads session status from worktree-status store.
