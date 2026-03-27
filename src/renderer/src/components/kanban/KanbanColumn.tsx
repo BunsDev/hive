@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, Fragment } from 'react'
-import { ChevronRight, ChevronDown, Plus, Zap } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Zap, Archive } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { Switch } from '@/components/ui/switch'
@@ -16,6 +16,12 @@ import {
   AlertDialogAction,
   AlertDialogCancel
 } from '@/components/ui/alert-dialog'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem
+} from '@/components/ui/context-menu'
 import { useKanbanStore, getKanbanDragData, setKanbanDragData } from '@/stores/useKanbanStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import type { KanbanTicket, KanbanTicketColumn as ColumnType } from '../../../../main/db/types'
@@ -31,10 +37,11 @@ const COLUMN_TITLES: Record<ColumnType, string> = {
 interface KanbanColumnProps {
   column: ColumnType
   tickets: KanbanTicket[]
+  archivedTickets?: KanbanTicket[]
   projectId: string
 }
 
-export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) {
+export function KanbanColumn({ column, tickets, archivedTickets, projectId }: KanbanColumnProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -45,6 +52,7 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
     ticketId: string
     targetIndex: number
   } | null>(null)
+  const [showArchiveAllConfirm, setShowArchiveAllConfirm] = useState(false)
 
   const isDoneColumn = column === 'done'
   const isTodoColumn = column === 'todo'
@@ -67,6 +75,31 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
     },
     [projectId]
   )
+
+  // ── Archive toggle (Done column only) ───────────────────────────
+  const showArchived = useKanbanStore(
+    useCallback(
+      (state) => state.showArchivedByProject[projectId] ?? false,
+      [projectId]
+    )
+  )
+
+  const handleToggleShowArchived = useCallback(
+    (checked: boolean) => {
+      useKanbanStore.getState().setShowArchived(projectId, checked)
+    },
+    [projectId]
+  )
+
+  const handleArchiveAll = useCallback(async () => {
+    try {
+      const count = await useKanbanStore.getState().archiveAllDone(projectId)
+      toast.success(`Archived ${count} ticket${count !== 1 ? 's' : ''}`)
+    } catch {
+      toast.error('Failed to archive tickets')
+    }
+    setShowArchiveAllConfirm(false)
+  }, [projectId])
 
   const handleToggleCollapse = useCallback(() => {
     setIsCollapsed((prev) => !prev)
@@ -249,50 +282,82 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
       )}
     >
       {/* Column header */}
-      <div className="flex flex-col gap-1 px-2 pb-3">
-        {/* Title row — always centered */}
-        <div className="flex items-center justify-center gap-2">
-          {/* Collapse toggle for Done column */}
-          {isDoneColumn && (
-            <button
-              data-testid="kanban-column-done-toggle"
-              onClick={handleToggleCollapse}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 transition-colors"
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
+      <ContextMenu>
+        <ContextMenuTrigger asChild disabled={!isDoneColumn}>
+          <div className="flex flex-col gap-1 px-2 pb-3">
+            {/* Title row — always centered */}
+            <div className="flex items-center justify-center gap-2">
+              {/* Collapse toggle for Done column */}
+              {isDoneColumn && (
+                <button
+                  data-testid="kanban-column-done-toggle"
+                  onClick={handleToggleCollapse}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 transition-colors"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  )}
+                </button>
               )}
-            </button>
-          )}
 
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {COLUMN_TITLES[column]}
-          </h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {COLUMN_TITLES[column]}
+              </h3>
 
-          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-muted/40 px-1.5 text-[11px] font-medium text-muted-foreground">
-            {tickets.length}
-          </span>
-        </div>
+              <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-muted/40 px-1.5 text-[11px] font-medium text-muted-foreground">
+                {showArchived && archivedTickets && archivedTickets.length > 0
+                  ? `${tickets.length} + ${archivedTickets.length} archived`
+                  : tickets.length}
+              </span>
+            </div>
 
-        {/* Controls row — only for columns with controls */}
-        {/* Flow mode toggle — only for In Progress column.
-            ON (default) = flow mode: automated worktree picker on drop.
-            OFF = simple mode: direct drop, no modal. */}
-        {isInProgressColumn && (
-          <div className="flex items-center justify-center gap-1.5">
-            <Zap className={cn('h-3 w-3', !isSimpleMode ? 'text-amber-500' : 'text-muted-foreground/50')} />
-            <Switch
-              data-testid="simple-mode-toggle"
-              size="sm"
-              checked={!isSimpleMode}
-              onCheckedChange={(checked) => handleSimpleModeToggle(!checked)}
-            />
+            {/* Controls row — only for columns with controls */}
+            {/* Flow mode toggle — only for In Progress column.
+                ON (default) = flow mode: automated worktree picker on drop.
+                OFF = simple mode: direct drop, no modal. */}
+            {isInProgressColumn && (
+              <div className="flex items-center justify-center gap-1.5">
+                <Zap className={cn('h-3 w-3', !isSimpleMode ? 'text-amber-500' : 'text-muted-foreground/50')} />
+                <Switch
+                  data-testid="simple-mode-toggle"
+                  size="sm"
+                  checked={!isSimpleMode}
+                  onCheckedChange={(checked) => handleSimpleModeToggle(!checked)}
+                />
+              </div>
+            )}
+
+            {/* Archive toggle — only for Done column */}
+            {isDoneColumn && (
+              <div className="flex items-center justify-center gap-1.5">
+                <Archive className={cn('h-3 w-3', showArchived ? 'text-muted-foreground' : 'text-muted-foreground/50')} />
+                <Switch
+                  data-testid="archive-toggle"
+                  size="sm"
+                  checked={showArchived}
+                  onCheckedChange={handleToggleShowArchived}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </ContextMenuTrigger>
 
-      </div>
+        {isDoneColumn && (
+          <ContextMenuContent>
+            <ContextMenuItem
+              data-testid="ctx-archive-all"
+              disabled={tickets.length === 0}
+              onClick={() => setShowArchiveAllConfirm(true)}
+              className="gap-2"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              Archive all
+            </ContextMenuItem>
+          </ContextMenuContent>
+        )}
+      </ContextMenu>
 
       {/* Drop area — scrollable card list, doubles as drop target */}
       {!(isDoneColumn && isCollapsed) && (
@@ -331,6 +396,22 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
                 </Fragment>
               ))}
               {isDragOver && dropIndex === tickets.length && dropIndicator}
+
+              {/* Archived tickets (Done column, toggle ON) */}
+              {isDoneColumn && showArchived && archivedTickets && archivedTickets.length > 0 && (
+                <>
+                  <div className="flex items-center gap-2 px-2 py-1">
+                    <div className="flex-1 border-t border-border/40" />
+                    <span className="text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">Archived</span>
+                    <div className="flex-1 border-t border-border/40" />
+                  </div>
+                  {archivedTickets.map((ticket) => (
+                    <div key={ticket.id}>
+                      <KanbanTicketCard ticket={ticket} index={-1} isArchived />
+                    </div>
+                  ))}
+                </>
+              )}
 
               {/* Add-ticket card at the end of the To Do column */}
               {isTodoColumn && (
@@ -391,6 +472,32 @@ export function KanbanColumn({ column, tickets, projectId }: KanbanColumnProps) 
                 onClick={handleConfirmBackwardDrag}
               >
                 Stop &amp; Move
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* Archive All confirmation dialog — Done column */}
+      {isDoneColumn && (
+        <AlertDialog
+          open={showArchiveAllConfirm}
+          onOpenChange={setShowArchiveAllConfirm}
+        >
+          <AlertDialogContent data-testid="archive-all-confirm-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Archive all done tickets?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Archive all {tickets.length} ticket{tickets.length !== 1 ? 's' : ''} in Done?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="archive-all-cancel-btn">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                data-testid="archive-all-confirm-btn"
+                onClick={handleArchiveAll}
+              >
+                Archive all
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 11
+export const CURRENT_SCHEMA_VERSION = 12
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -320,5 +320,11 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_kanban_tickets_project;
       DROP TABLE IF EXISTS kanban_tickets;
     `
+  },
+  {
+    version: 12,
+    name: 'add_kanban_archived_at',
+    up: `ALTER TABLE kanban_tickets ADD COLUMN archived_at TEXT DEFAULT NULL`,
+    down: `-- SQLite cannot drop columns; no-op for safety`
   }
 ]

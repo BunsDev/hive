@@ -51,6 +51,8 @@ interface KanbanState {
   selectedTicketId: string | null
   /** Whether a ticket is currently being dragged (reactive, for column styling) */
   isDragging: boolean
+  /** Per-project archive visibility toggle — NOT persisted to localStorage */
+  showArchivedByProject: Record<string, boolean>
 
   // ── Actions ────────────────────────────────────────────────────────
   setSelectedTicketId: (id: string | null) => void
@@ -67,6 +69,10 @@ interface KanbanState {
   reorderTicket: (ticketId: string, projectId: string, newSortOrder: number) => Promise<void>
   toggleBoardView: () => void
   setSimpleMode: (projectId: string, enabled: boolean) => Promise<void>
+  archiveTicket: (ticketId: string, projectId: string) => Promise<void>
+  archiveAllDone: (projectId: string) => Promise<number>
+  unarchiveTicket: (ticketId: string, projectId: string) => Promise<void>
+  setShowArchived: (projectId: string, show: boolean) => void
 
   // ── Session coordination ────────────────────────────────────────────
   syncTicketWithSession: (sessionId: string, event: KanbanSessionEvent) => void
@@ -74,6 +80,7 @@ interface KanbanState {
   // ── Getters ────────────────────────────────────────────────────────
   getTicketsForProject: (projectId: string) => KanbanTicket[]
   getTicketsByColumn: (projectId: string, column: KanbanTicketColumn) => KanbanTicket[]
+  getArchivedTicketsByColumn: (projectId: string, column: KanbanTicketColumn) => KanbanTicket[]
 
   // ── Helpers ────────────────────────────────────────────────────────
   computeSortOrder: (tickets: KanbanTicket[], targetIndex: number) => number
@@ -89,6 +96,7 @@ export const useKanbanStore = create<KanbanState>()(
       simpleModeByProject: {} as Record<string, boolean>,
       selectedTicketId: null,
       isDragging: false,
+      showArchivedByProject: {} as Record<string, boolean>,
 
       // ── setSelectedTicketId ────────────────────────────────────────
       setSelectedTicketId: (id: string | null) => {
@@ -174,6 +182,106 @@ export const useKanbanStore = create<KanbanState>()(
           })
           throw err
         }
+      },
+
+      // ── archiveTicket (optimistic) ─────────────────────────────────
+      archiveTicket: async (ticketId: string, projectId: string) => {
+        const prev = get().tickets.get(projectId) ?? []
+        const snapshot = prev.map((t) => ({ ...t }))
+
+        const now = new Date().toISOString()
+        // Optimistic local archive
+        set((state) => {
+          const next = new Map(state.tickets)
+          const tickets = (next.get(projectId) ?? []).map((t) =>
+            t.id === ticketId ? { ...t, archived_at: now, updated_at: now } : t
+          )
+          next.set(projectId, tickets)
+          return { tickets: next }
+        })
+
+        try {
+          await window.kanban.ticket.archive(ticketId)
+        } catch (err) {
+          // Revert on failure
+          set((state) => {
+            const next = new Map(state.tickets)
+            next.set(projectId, snapshot)
+            return { tickets: next }
+          })
+          throw err
+        }
+      },
+
+      // ── archiveAllDone (optimistic) ────────────────────────────────
+      archiveAllDone: async (projectId: string): Promise<number> => {
+        const prev = get().tickets.get(projectId) ?? []
+        const snapshot = prev.map((t) => ({ ...t }))
+
+        const now = new Date().toISOString()
+        let count = 0
+        // Optimistic local archive of all non-archived done tickets
+        set((state) => {
+          const next = new Map(state.tickets)
+          const tickets = (next.get(projectId) ?? []).map((t) => {
+            if (t.column === 'done' && !t.archived_at) {
+              count++
+              return { ...t, archived_at: now, updated_at: now }
+            }
+            return t
+          })
+          next.set(projectId, tickets)
+          return { tickets: next }
+        })
+
+        try {
+          await window.kanban.ticket.archiveAllDone(projectId)
+          return count
+        } catch (err) {
+          // Revert on failure
+          set((state) => {
+            const next = new Map(state.tickets)
+            next.set(projectId, snapshot)
+            return { tickets: next }
+          })
+          throw err
+        }
+      },
+
+      // ── unarchiveTicket (optimistic) ───────────────────────────────
+      unarchiveTicket: async (ticketId: string, projectId: string) => {
+        const prev = get().tickets.get(projectId) ?? []
+        const snapshot = prev.map((t) => ({ ...t }))
+
+        const now = new Date().toISOString()
+        // Optimistic local unarchive
+        set((state) => {
+          const next = new Map(state.tickets)
+          const tickets = (next.get(projectId) ?? []).map((t) =>
+            t.id === ticketId ? { ...t, archived_at: null, updated_at: now } : t
+          )
+          next.set(projectId, tickets)
+          return { tickets: next }
+        })
+
+        try {
+          await window.kanban.ticket.unarchive(ticketId)
+        } catch (err) {
+          // Revert on failure
+          set((state) => {
+            const next = new Map(state.tickets)
+            next.set(projectId, snapshot)
+            return { tickets: next }
+          })
+          throw err
+        }
+      },
+
+      // ── setShowArchived ────────────────────────────────────────────
+      setShowArchived: (projectId: string, show: boolean) => {
+        set((state) => ({
+          showArchivedByProject: { ...state.showArchivedByProject, [projectId]: show }
+        }))
       },
 
       // ── moveTicket (optimistic) ──────────────────────────────────
@@ -322,7 +430,15 @@ export const useKanbanStore = create<KanbanState>()(
       // ── getTicketsByColumn ───────────────────────────────────────
       getTicketsByColumn: (projectId: string, column: KanbanTicketColumn): KanbanTicket[] => {
         const tickets = get().tickets.get(projectId) ?? []
-        return tickets.filter((t) => t.column === column).sort((a, b) => a.sort_order - b.sort_order)
+        return tickets.filter((t) => t.column === column && !t.archived_at).sort((a, b) => a.sort_order - b.sort_order)
+      },
+
+      // ── getArchivedTicketsByColumn ─────────────────────────────────
+      getArchivedTicketsByColumn: (projectId: string, column: KanbanTicketColumn): KanbanTicket[] => {
+        const tickets = get().tickets.get(projectId) ?? []
+        return tickets
+          .filter((t) => t.column === column && t.archived_at)
+          .sort((a, b) => (b.archived_at ?? '').localeCompare(a.archived_at ?? ''))
       },
 
       // ── computeSortOrder ─────────────────────────────────────────

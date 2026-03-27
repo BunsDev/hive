@@ -171,6 +171,7 @@ interface KanbanTicket {
   plan_ready: boolean
   created_at: string
   updated_at: string
+  archived_at: string | null
 }
 
 interface KanbanTicketCreate {
@@ -1291,6 +1292,9 @@ declare global {
         getByProject: (projectId: string) => Promise<KanbanTicket[]>
         update: (id: string, data: KanbanTicketUpdate) => Promise<KanbanTicket | null>
         delete: (id: string) => Promise<boolean>
+        archive: (id: string) => Promise<KanbanTicket | null>
+        archiveAllDone: (projectId: string) => Promise<number>
+        unarchive: (id: string) => Promise<KanbanTicket | null>
         move: (
           id: string,
           column: KanbanTicketColumn,

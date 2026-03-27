@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
-import { Paperclip, AlertCircle, Trash2, Archive, GitBranch, ExternalLink } from 'lucide-react'
+import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import {
@@ -32,11 +32,14 @@ interface KanbanTicketCardProps {
   ticket: KanbanTicket
   /** Position index within the column (used for drag transfer data) */
   index?: number
+  /** Whether this ticket is archived (shown in archived section) */
+  isArchived?: boolean
 }
 
 export const KanbanTicketCard = memo(function KanbanTicketCard({
   ticket,
-  index = 0
+  index = 0,
+  isArchived = false
 }: KanbanTicketCardProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -181,10 +184,19 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
 
   const handleArchive = useCallback(async () => {
     try {
-      await useKanbanStore.getState().deleteTicket(ticket.id, ticket.project_id)
+      await useKanbanStore.getState().archiveTicket(ticket.id, ticket.project_id)
       toast.success('Ticket archived')
     } catch {
       toast.error('Failed to archive ticket')
+    }
+  }, [ticket.id, ticket.project_id])
+
+  const handleUnarchive = useCallback(async () => {
+    try {
+      await useKanbanStore.getState().unarchiveTicket(ticket.id, ticket.project_id)
+      toast.success('Ticket unarchived')
+    } catch {
+      toast.error('Failed to unarchive ticket')
     }
   }, [ticket.id, ticket.project_id])
 
@@ -205,7 +217,7 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
         <ContextMenuTrigger asChild>
           <div
             data-testid={`kanban-ticket-${ticket.id}`}
-            draggable={true}
+            draggable={!isArchived}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             onClick={handleClick}
@@ -213,6 +225,7 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
               'group cursor-pointer rounded-md border bg-card shadow-sm p-3 transition-all duration-200',
               'hover:bg-muted/40',
               isDragging && 'invisible',
+              isArchived && 'opacity-50 cursor-default',
               borderState === 'default' && 'border-border/60',
               borderState === 'blue' && 'border-blue-500/60',
               borderState === 'violet' && 'border-violet-500/60'
@@ -222,8 +235,15 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
             <p className="text-sm font-medium leading-snug text-foreground">{ticket.title}</p>
 
             {/* Badges + progress row */}
-            {(hasAttachments || worktreeName || ticket.plan_ready || isError || isBusy || isAsking) && (
+            {(hasAttachments || worktreeName || ticket.plan_ready || isError || isBusy || isAsking || isArchived) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {/* Archived badge */}
+                {isArchived && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <Archive className="h-3 w-3" />
+                    Archived
+                  </span>
+                )}
                 {/* Attachment badge */}
                 {hasAttachments && (
                   <span
@@ -295,16 +315,27 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
 
           <ContextMenuSeparator />
 
-          {/* Archive (done tickets) or Delete (all others) */}
+          {/* Archive/Unarchive (done tickets) or Delete (all others) */}
           {isDone ? (
-            <ContextMenuItem
-              data-testid="ctx-archive-ticket"
-              onClick={handleArchive}
-              className="gap-2"
-            >
-              <Archive className="h-3.5 w-3.5" />
-              Archive
-            </ContextMenuItem>
+            isArchived ? (
+              <ContextMenuItem
+                data-testid="ctx-unarchive-ticket"
+                onClick={handleUnarchive}
+                className="gap-2"
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
+                Unarchive
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem
+                data-testid="ctx-archive-ticket"
+                onClick={handleArchive}
+                className="gap-2"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive
+              </ContextMenuItem>
+            )
           ) : (
             <ContextMenuItem
               data-testid="ctx-delete-ticket"

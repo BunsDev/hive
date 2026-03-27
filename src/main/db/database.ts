@@ -126,7 +126,8 @@ export class DatabaseService {
       mode: (row.mode as 'build' | 'plan') ?? null,
       plan_ready: !!(row.plan_ready as number),
       created_at: row.created_at as string,
-      updated_at: row.updated_at as string
+      updated_at: row.updated_at as string,
+      archived_at: (row.archived_at as string) ?? null
     }
   }
 
@@ -227,6 +228,7 @@ export class DatabaseService {
     this.safeAddColumn('worktrees', 'github_pr_url', 'TEXT DEFAULT NULL')
     this.safeAddColumn('connections', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
     this.safeAddColumn('projects', 'kanban_simple_mode', 'INTEGER NOT NULL DEFAULT 0')
+    this.safeAddColumn('kanban_tickets', 'archived_at', 'TEXT DEFAULT NULL')
 
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_connection ON sessions(connection_id);
@@ -1714,6 +1716,35 @@ export class DatabaseService {
     const db = this.getDb()
     const result = db.prepare('DELETE FROM kanban_tickets WHERE id = ?').run(id)
     return result.changes > 0
+  }
+
+  archiveKanbanTicket(id: string): KanbanTicket | null {
+    const db = this.getDb()
+    const existing = this.getKanbanTicket(id)
+    if (!existing) return null
+    const now = new Date().toISOString()
+    db.prepare('UPDATE kanban_tickets SET archived_at = ?, updated_at = ? WHERE id = ?')
+      .run(now, now, id)
+    return this.getKanbanTicket(id)
+  }
+
+  archiveAllDoneKanbanTickets(projectId: string): number {
+    const db = this.getDb()
+    const now = new Date().toISOString()
+    const result = db.prepare(
+      'UPDATE kanban_tickets SET archived_at = ?, updated_at = ? WHERE project_id = ? AND "column" = ? AND archived_at IS NULL'
+    ).run(now, now, projectId, 'done')
+    return result.changes
+  }
+
+  unarchiveKanbanTicket(id: string): KanbanTicket | null {
+    const db = this.getDb()
+    const existing = this.getKanbanTicket(id)
+    if (!existing) return null
+    const now = new Date().toISOString()
+    db.prepare('UPDATE kanban_tickets SET archived_at = NULL, updated_at = ? WHERE id = ?')
+      .run(now, id)
+    return this.getKanbanTicket(id)
   }
 
   moveKanbanTicket(id: string, column: KanbanTicketColumn, sortOrder: number): KanbanTicket | null {

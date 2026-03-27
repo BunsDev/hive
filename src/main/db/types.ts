@@ -346,6 +346,7 @@ export interface KanbanTicket {
   plan_ready: boolean // Mapped from INTEGER 0/1 in DB
   created_at: string
   updated_at: string
+  archived_at: string | null
 }
 
 export interface KanbanTicketCreate {

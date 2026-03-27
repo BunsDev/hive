@@ -28,6 +28,18 @@ export function registerKanbanHandlers(): void {
     return getDatabase().deleteKanbanTicket(id)
   })
 
+  ipcMain.handle('kanban:ticket:archive', (_event, id: string) => {
+    return getDatabase().archiveKanbanTicket(id)
+  })
+
+  ipcMain.handle('kanban:ticket:archiveAllDone', (_event, projectId: string) => {
+    return getDatabase().archiveAllDoneKanbanTickets(projectId)
+  })
+
+  ipcMain.handle('kanban:ticket:unarchive', (_event, id: string) => {
+    return getDatabase().unarchiveKanbanTicket(id)
+  })
+
   ipcMain.handle(
     'kanban:ticket:move',
     (_event, id: string, column: KanbanTicketColumn, sortOrder: number) => {

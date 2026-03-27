@@ -13,6 +13,7 @@ interface KanbanBoardProps {
 export function KanbanBoard({ projectId }: KanbanBoardProps) {
   const loadTickets = useKanbanStore((state) => state.loadTickets)
   const getTicketsByColumn = useKanbanStore((state) => state.getTicketsByColumn)
+  const getArchivedTicketsByColumn = useKanbanStore((state) => state.getArchivedTicketsByColumn)
 
   // Trigger a re-render when the tickets map changes
   useKanbanStore((state) => state.tickets)
@@ -32,6 +33,7 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
           key={column}
           column={column}
           tickets={getTicketsByColumn(projectId, column)}
+          archivedTickets={column === 'done' ? getArchivedTicketsByColumn(projectId, 'done') : undefined}
           projectId={projectId}
         />
       ))}

@@ -1774,6 +1774,9 @@ const kanban = {
       }
     ) => ipcRenderer.invoke('kanban:ticket:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('kanban:ticket:delete', id),
+    archive: (id: string) => ipcRenderer.invoke('kanban:ticket:archive', id),
+    archiveAllDone: (projectId: string) => ipcRenderer.invoke('kanban:ticket:archiveAllDone', projectId),
+    unarchive: (id: string) => ipcRenderer.invoke('kanban:ticket:unarchive', id),
     move: (id: string, column: 'todo' | 'in_progress' | 'review' | 'done', sortOrder: number) =>
       ipcRenderer.invoke('kanban:ticket:move', id, column, sortOrder),
     reorder: (id: string, sortOrder: number) =>
