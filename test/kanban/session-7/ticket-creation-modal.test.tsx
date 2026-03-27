@@ -305,4 +305,77 @@ describe('Session 7: Ticket Creation Modal', () => {
 
     expect(screen.queryByTestId('ticket-attachment-chip-0')).not.toBeInTheDocument()
   })
+
+  // ── Tab navigation tests ────────────────────────────────────────────
+  test('Tab key allows natural focus movement between title and description', () => {
+    render(
+      <TicketCreateModal open={true} onOpenChange={vi.fn()} projectId="proj-1" />
+    )
+
+    const titleInput = screen.getByTestId('ticket-title-input')
+    titleInput.focus()
+
+    // Fire Tab — should NOT be prevented (stopImmediatePropagation blocks
+    // SessionView's global handler, but default browser focus movement remains)
+    const tabEvent = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true
+    })
+    const preventSpy = vi.spyOn(tabEvent, 'preventDefault')
+
+    titleInput.dispatchEvent(tabEvent)
+
+    // The modal's handler must NOT call preventDefault so focus moves naturally
+    expect(preventSpy).not.toHaveBeenCalled()
+  })
+
+  test('Tab key inside modal blocks external capture-phase listeners', () => {
+    // Simulate SessionView's global Tab handler
+    const externalHandler = vi.fn()
+    const sessionViewHandler = (e: KeyboardEvent): void => {
+      if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        externalHandler()
+      }
+    }
+    // Register AFTER render so the modal's handler runs first via stopImmediatePropagation
+    render(
+      <TicketCreateModal open={true} onOpenChange={vi.fn()} projectId="proj-1" />
+    )
+    window.addEventListener('keydown', sessionViewHandler, true)
+
+    try {
+      const titleInput = screen.getByTestId('ticket-title-input')
+      titleInput.focus()
+
+      fireEvent.keyDown(titleInput, { key: 'Tab' })
+
+      // The external handler must NOT have been called — modal blocks it
+      expect(externalHandler).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', sessionViewHandler, true)
+    }
+  })
+
+  test('Shift+Tab key inside modal also allows natural focus movement', () => {
+    render(
+      <TicketCreateModal open={true} onOpenChange={vi.fn()} projectId="proj-1" />
+    )
+
+    const descInput = screen.getByTestId('ticket-description-input')
+    descInput.focus()
+
+    // Shift+Tab should also not be prevented
+    const tabEvent = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+    const preventSpy = vi.spyOn(tabEvent, 'preventDefault')
+
+    descInput.dispatchEvent(tabEvent)
+
+    expect(preventSpy).not.toHaveBeenCalled()
+  })
 })

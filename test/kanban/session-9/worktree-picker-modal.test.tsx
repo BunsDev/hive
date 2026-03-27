@@ -335,7 +335,7 @@ describe('Session 9: Worktree Picker Modal', () => {
     expect(toggle).toHaveAttribute('data-mode', 'build')
   })
 
-  test('Tab key toggles between build and plan', () => {
+  test('Tab key toggles mode and focuses the prompt textarea', () => {
     render(
       <WorktreePickerModal
         ticket={defaultTicket}
@@ -346,17 +346,41 @@ describe('Session 9: Worktree Picker Modal', () => {
     )
 
     const modal = screen.getByTestId('worktree-picker-modal')
+    const textarea = screen.getByTestId('wt-picker-prompt')
     const toggle = screen.getByTestId('wt-picker-mode-toggle')
 
+    // Textarea should not be focused initially
+    expect(document.activeElement).not.toBe(textarea)
     expect(toggle).toHaveAttribute('data-mode', 'build')
 
-    // Press Tab to toggle to plan
+    // Press Tab — should toggle to plan AND focus the textarea
     fireEvent.keyDown(modal, { key: 'Tab' })
     expect(toggle).toHaveAttribute('data-mode', 'plan')
+    expect(document.activeElement).toBe(textarea)
+  })
 
-    // Press Tab again to toggle back to build
+  test('Tab still toggles mode when prompt textarea is already focused', () => {
+    render(
+      <WorktreePickerModal
+        ticket={defaultTicket}
+        projectId="proj-1"
+        open={true}
+        onOpenChange={() => {}}
+      />
+    )
+
+    const modal = screen.getByTestId('worktree-picker-modal')
+    const textarea = screen.getByTestId('wt-picker-prompt') as HTMLTextAreaElement
+    const toggle = screen.getByTestId('wt-picker-mode-toggle')
+
+    // Focus the textarea first
+    textarea.focus()
+    expect(document.activeElement).toBe(textarea)
+
+    // Press Tab — mode should toggle, focus should stay on textarea
     fireEvent.keyDown(modal, { key: 'Tab' })
-    expect(toggle).toHaveAttribute('data-mode', 'build')
+    expect(toggle).toHaveAttribute('data-mode', 'plan')
+    expect(document.activeElement).toBe(textarea)
   })
 
   // ── Prompt text tests ────────────────────────────────────────────
@@ -372,13 +396,13 @@ describe('Session 9: Worktree Picker Modal', () => {
     )
 
     const textarea = screen.getByTestId('wt-picker-prompt') as HTMLTextAreaElement
-    const modal = screen.getByTestId('worktree-picker-modal')
+    const toggle = screen.getByTestId('wt-picker-mode-toggle')
 
     // Default is build mode
     expect(textarea.value).toContain('Please implement the following ticket')
 
-    // Toggle to plan
-    fireEvent.keyDown(modal, { key: 'Tab' })
+    // Click chip to toggle to plan
+    fireEvent.click(toggle)
     expect(textarea.value).toContain(
       'Please review the following ticket and create a detailed implementation plan'
     )

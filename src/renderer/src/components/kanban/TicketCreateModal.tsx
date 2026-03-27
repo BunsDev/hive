@@ -42,6 +42,23 @@ export function TicketCreateModal({ open, onOpenChange, projectId }: TicketCreat
   const titleInputRef = useRef<HTMLInputElement>(null)
   const createTicket = useKanbanStore((state) => state.createTicket)
 
+  // Allow natural Tab navigation between form fields — block SessionView's
+  // global capture-phase Tab handler which would toggle Build/Plan mode instead.
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const modal = document.querySelector('[data-testid="ticket-create-modal"]')
+        if (modal?.contains(document.activeElement)) {
+          e.stopImmediatePropagation()
+          // Don't preventDefault — let the browser move focus naturally
+        }
+      }
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [open])
+
   // Reset form when modal opens/closes
   useEffect(() => {
     if (open) {
@@ -150,6 +167,7 @@ export function TicketCreateModal({ open, onOpenChange, projectId }: TicketCreat
                 type="button"
                 variant="ghost"
                 size="sm"
+                tabIndex={-1}
                 data-testid="ticket-preview-toggle"
                 className="h-7 gap-1 text-xs text-muted-foreground"
                 onClick={() => setShowPreview((prev) => !prev)}
@@ -192,8 +210,6 @@ export function TicketCreateModal({ open, onOpenChange, projectId }: TicketCreat
 
           {/* Attachments */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Attachments</label>
-
             {/* Existing attachment chips */}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
@@ -223,8 +239,22 @@ export function TicketCreateModal({ open, onOpenChange, projectId }: TicketCreat
               </div>
             )}
 
+            {!showAttachInput && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="ticket-add-attachment-btn"
+                className="gap-1 text-xs"
+                onClick={() => setShowAttachInput(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add attachment
+              </Button>
+            )}
+
             {/* Inline attachment URL input */}
-            {showAttachInput ? (
+            {showAttachInput && (
               <div className="flex items-center gap-2">
                 <Input
                   data-testid="ticket-attachment-url-input"
@@ -265,18 +295,6 @@ export function TicketCreateModal({ open, onOpenChange, projectId }: TicketCreat
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-testid="ticket-add-attachment-btn"
-                className="gap-1 text-xs"
-                onClick={() => setShowAttachInput(true)}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add attachment
-              </Button>
             )}
           </div>
         </div>

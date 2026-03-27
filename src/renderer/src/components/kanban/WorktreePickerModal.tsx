@@ -122,7 +122,7 @@ export function WorktreePickerModal({
     })
   }, [ticket])
 
-  // ── Handle Tab key for mode toggle ──────────────────────────────
+  // ── Handle Tab key: toggle mode + focus prompt textarea ────────
   // Must use window-level capture-phase listener to beat SessionView's
   // global Tab handler which also uses capture and stops propagation.
   useEffect(() => {
@@ -132,6 +132,10 @@ export function WorktreePickerModal({
         e.preventDefault()
         e.stopImmediatePropagation()
         toggleMode()
+        // Also focus the prompt textarea if it isn't already focused
+        if (document.activeElement !== promptRef.current) {
+          promptRef.current?.focus()
+        }
       }
     }
     window.addEventListener('keydown', handler, true) // capture phase
@@ -146,6 +150,10 @@ export function WorktreePickerModal({
       if (e.key === 'Tab') {
         e.preventDefault()
         toggleMode()
+        // Also focus the prompt textarea if it isn't already focused
+        if (document.activeElement !== promptRef.current) {
+          promptRef.current?.focus()
+        }
       }
     },
     [toggleMode]
@@ -309,9 +317,13 @@ export function WorktreePickerModal({
         onKeyDown={handleKeyDown}
       >
         <DialogHeader className="space-y-2.5 pb-1">
-          <div className="flex items-center justify-between">
-            <DialogTitle className="text-base">Start Session</DialogTitle>
-            {/* Build/Plan chip toggle */}
+          <DialogTitle className="text-base">Start Session</DialogTitle>
+          <DialogDescription>
+            Pick a worktree for{' '}
+            <span className="font-medium text-foreground">{ticket.title}</span>
+          </DialogDescription>
+          {/* Build/Plan chip toggle — below description to avoid overlapping the X close button */}
+          <div>
             <button
               data-testid="wt-picker-mode-toggle"
               data-mode={mode}
@@ -324,17 +336,13 @@ export function WorktreePickerModal({
                   ? 'bg-blue-500/10 border-blue-500/30 text-blue-500 hover:bg-blue-500/20'
                   : 'bg-violet-500/10 border-violet-500/30 text-violet-500 hover:bg-violet-500/20'
               )}
-              title={`${modeLabel} mode (Tab to toggle)`}
-              aria-label={`Current mode: ${modeLabel}. Click or Tab to switch`}
+              title={`${modeLabel} mode`}
+              aria-label={`Current mode: ${modeLabel}. Click to switch`}
             >
               <ModeIcon className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{modeLabel}</span>
             </button>
           </div>
-          <DialogDescription>
-            Pick a worktree for{' '}
-            <span className="font-medium text-foreground">{ticket.title}</span>
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
