@@ -4270,6 +4270,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Don't intercept Tab inside the ticket creation modal — it needs
+        // natural tab navigation between title / description fields.
+        const createModal = document.querySelector('[data-testid="ticket-create-modal"]')
+        if (createModal?.contains(document.activeElement)) return
+
         e.preventDefault()
         e.stopPropagation()
         toggleSessionMode(sessionId)
