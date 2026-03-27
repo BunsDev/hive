@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 11
+export const CURRENT_SCHEMA_VERSION = 13
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -319,6 +319,38 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_kanban_tickets_session;
       DROP INDEX IF EXISTS idx_kanban_tickets_project;
       DROP TABLE IF EXISTS kanban_tickets;
+    `
+  },
+  {
+    version: 12,
+    name: 'add_ticket_followup_messages',
+    up: `
+      CREATE TABLE IF NOT EXISTS ticket_followup_messages (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES kanban_tickets(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'build',
+        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        source TEXT NOT NULL DEFAULT 'direct',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ticket_followup_messages_ticket
+        ON ticket_followup_messages(ticket_id, created_at);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_ticket_followup_messages_ticket;
+      DROP TABLE IF EXISTS ticket_followup_messages;
+    `
+  },
+  {
+    version: 13,
+    name: 'add_ticket_followup_messages_role',
+    up: `
+      ALTER TABLE ticket_followup_messages ADD COLUMN role TEXT NOT NULL DEFAULT 'user';
+    `,
+    down: `
+      ALTER TABLE ticket_followup_messages DROP COLUMN role;
     `
   }
 ]

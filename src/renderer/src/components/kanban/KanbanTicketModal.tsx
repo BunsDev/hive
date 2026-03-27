@@ -160,6 +160,15 @@ async function sendFollowupToSession(opts: {
     // Resolve model AFTER setSessionMode (which may have applied a mode-specific default)
     const model = resolveSessionModel(opts.sessionId)
 
+    // Persist the followup message
+    window.kanban.followup.create({
+      ticket_id: opts.ticketId,
+      content: opts.prompt,
+      mode: opts.followUpMode,
+      session_id: opts.sessionId,
+      source: 'direct'
+    }).catch(() => {})
+
     await window.opencodeOps.prompt(worktreePath, session.opencode_session_id, [
       { type: 'text', text: fullPrompt }
     ], model)
@@ -663,6 +672,14 @@ function PlanReviewModeContent({
   const [isSending, setIsSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const [followupHistory, setFollowupHistory] = useState<Array<{
+    id: string; content: string; mode: 'build' | 'plan'; source: string; created_at: string
+  }>>([])
+
+  useEffect(() => {
+    window.kanban.followup.getByTicket(ticket.id).then(setFollowupHistory).catch(() => {})
+  }, [ticket.id])
+
   const planContent = pendingPlan?.planContent ?? ticket.description ?? ''
 
   const toggleMode = useCallback(() => {
@@ -711,6 +728,13 @@ function PlanReviewModeContent({
             )
           }
           // planReject already sends the feedback as the next prompt for Claude Code
+          window.kanban.followup.create({
+            ticket_id: ticket.id,
+            content: feedback,
+            mode: 'plan',
+            session_id: sessionId,
+            source: 'direct'
+          }).catch(() => {})
           await updateTicket(ticket.id, ticket.project_id, { plan_ready: false, mode: 'plan' })
           toast.success('Plan rejected with feedback')
           onClose()
@@ -984,6 +1008,8 @@ function PlanReviewModeContent({
         <MarkdownRenderer content={planContent} />
       </div>
 
+      <FollowupHistory messages={followupHistory} />
+
       {/* Followup input — iterate on the plan */}
       <div className="space-y-1.5 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -1098,6 +1124,14 @@ function ReviewModeContent({
   const [followUpMode, setFollowUpMode] = useState<FollowUpMode>('build')
   const [isSending, setIsSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const [followupHistory, setFollowupHistory] = useState<Array<{
+    id: string; content: string; mode: 'build' | 'plan'; source: string; created_at: string
+  }>>([])
+
+  useEffect(() => {
+    window.kanban.followup.getByTicket(ticket.id).then(setFollowupHistory).catch(() => {})
+  }, [ticket.id])
 
   // Display ticket description as context, with notice to view session for full conversation
   const reviewDescription = ticket.description ?? null
@@ -1219,6 +1253,8 @@ function ReviewModeContent({
         </p>
       </div>
 
+      <FollowupHistory messages={followupHistory} />
+
       {/* Followup input area */}
       <div className="space-y-2 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -1307,6 +1343,14 @@ function ErrorModeContent({
   const [isSending, setIsSending] = useState(false)
   const updateTicket = useKanbanStore((s) => s.updateTicket)
 
+  const [followupHistory, setFollowupHistory] = useState<Array<{
+    id: string; content: string; mode: 'build' | 'plan'; source: string; created_at: string
+  }>>([])
+
+  useEffect(() => {
+    window.kanban.followup.getByTicket(ticket.id).then(setFollowupHistory).catch(() => {})
+  }, [ticket.id])
+
   // Look up session status entry for error details
   const sessionStatusEntry = useWorktreeStatusStore(
     useCallback(
@@ -1393,6 +1437,8 @@ function ErrorModeContent({
           {' \u2014 use "Jump to session" for full details.'}
         </p>
       </div>
+
+      <FollowupHistory messages={followupHistory} />
 
       {/* Followup input */}
       <div className="space-y-2">
@@ -1524,6 +1570,50 @@ function QuestionModeContent({
         onReject={handleReject}
       />
     </DialogContent>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FOLLOWUP HISTORY
+// ════════════════════════════════════════════════════════════════════
+
+function FollowupHistory({ messages }: {
+  messages: Array<{
+    id: string
+    content: string
+    mode: 'build' | 'plan'
+    source: string
+    created_at: string
+  }>
+}) {
+  if (messages.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Previous followups
+      </label>
+      <div className="max-h-40 overflow-y-auto space-y-1.5 rounded-md border border-border/40 bg-muted/10 p-2">
+        {messages.map((msg) => (
+          <div key={msg.id} className="flex items-start gap-2 text-xs">
+            <span className={cn(
+              'shrink-0 mt-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+              msg.mode === 'build'
+                ? 'bg-blue-500/10 text-blue-500'
+                : 'bg-violet-500/10 text-violet-500'
+            )}>
+              {msg.mode}
+            </span>
+            <p className="text-foreground/80 whitespace-pre-wrap break-words flex-1 font-mono leading-relaxed">
+              {msg.content}
+            </p>
+            <span className="shrink-0 text-muted-foreground/50 text-[10px]">
+              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

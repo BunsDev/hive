@@ -552,6 +552,22 @@ export function useOpenCodeGlobalListener(): void {
                 }
 
                 dispatchSucceeded = true
+
+                // Persist follow-up for the linked kanban ticket
+                const kanbanTickets = useKanbanStore.getState().tickets
+                for (const [, projectTickets] of kanbanTickets) {
+                  const linkedTicket = projectTickets.find(t => t.current_session_id === sessionId)
+                  if (linkedTicket) {
+                    window.kanban.followup.create({
+                      ticket_id: linkedTicket.id,
+                      content: message,
+                      mode: useSessionStore.getState().getSessionMode(sessionId),
+                      session_id: sessionId,
+                      source: 'supercharge'
+                    }).catch(() => {})
+                    break
+                  }
+                }
               } catch {
                 useSessionStore.getState().requeueFollowUpMessageFront(sessionId, message)
                 markBackgroundSessionCompleted(sessionId)
