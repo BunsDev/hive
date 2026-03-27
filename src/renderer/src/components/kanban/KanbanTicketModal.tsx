@@ -1037,16 +1037,6 @@ function PlanReviewModeContent({
       <DialogFooter className="flex-shrink-0 gap-1.5">
         <Button
           type="button"
-          data-testid="plan-review-implement-btn"
-          disabled={isActioning}
-          onClick={handleImplement}
-          className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          <Hammer className="h-3.5 w-3.5" />
-          Implement
-        </Button>
-        <Button
-          type="button"
           data-testid="plan-review-handoff-btn"
           disabled={isActioning}
           onClick={handleHandoff}
@@ -1076,6 +1066,16 @@ function PlanReviewModeContent({
         >
           <Zap className="h-3.5 w-3.5" />
           Supercharge (new branch)
+        </Button>
+        <Button
+          type="button"
+          data-testid="plan-review-implement-btn"
+          disabled={isActioning}
+          onClick={handleImplement}
+          className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          <Hammer className="h-3.5 w-3.5" />
+          Implement
         </Button>
       </DialogFooter>
     </DialogContent>
