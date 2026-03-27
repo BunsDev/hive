@@ -23,6 +23,7 @@ import { messageSendTimes, lastSendMode } from '@/lib/message-send-times'
 import { PLAN_MODE_PREFIX } from '@/lib/constants'
 import { toast } from '@/lib/toast'
 import type { KanbanTicket } from '../../../../main/db/types'
+import { canonicalizeTicketTitle } from '../../../../main/services/git-service'
 
 // ── Types ───────────────────────────────────────────────────────────
 type PickerMode = 'build' | 'plan'
@@ -104,6 +105,10 @@ export function WorktreePickerModal({
     const defaultWt = worktrees.find(w => w.is_default)
     return defaultWt?.branch_name ?? 'main'
   }, [worktrees])
+
+  const worktreeNamePreview = useMemo(() => {
+    return canonicalizeTicketTitle(ticket.title)
+  }, [ticket.title])
 
   // ── Count in-progress tickets per worktree ──────────────────────
   const ticketCountByWorktree = useMemo(() => {
@@ -235,11 +240,13 @@ export function WorktreePickerModal({
       // Create new worktree if needed
       if (isNewWorktree && project) {
         const targetBranch = sourceBranch ?? defaultBranchName
+        const nameHint = canonicalizeTicketTitle(ticket.title)
         const result = await createWorktreeFromBranch(
           projectId,
           project.path,
           project.name,
-          targetBranch
+          targetBranch,
+          nameHint || undefined
         )
         if (!result.success || !result.worktree?.id) {
           toast.error(result.error || 'Failed to create worktree')
@@ -504,6 +511,11 @@ export function WorktreePickerModal({
                       </div>
                     </PopoverContent>
                   </Popover>
+                  {worktreeNamePreview && (
+                    <span className="ml-auto text-xs text-muted-foreground font-mono truncate max-w-[180px]">
+                      {worktreeNamePreview}
+                    </span>
+                  )}
                 </div>
               )}
 
