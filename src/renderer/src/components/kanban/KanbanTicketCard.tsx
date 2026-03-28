@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
-import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink } from 'lucide-react'
+import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import {
@@ -46,6 +46,7 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
   const [isDragging, setIsDragging] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showWorktreePicker, setShowWorktreePicker] = useState(false)
+  const [showPreAssignPicker, setShowPreAssignPicker] = useState(false)
   const dragCloneRef = useRef<HTMLElement | null>(null)
 
   // ── Lookup worktree name ────────────────────────────────────────
@@ -227,6 +228,18 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
 
   const isSimpleTicket = ticket.current_session_id === null
   const isFlowTicket = ticket.current_session_id !== null
+  const isTodo = ticket.column === 'todo'
+
+  const handleUnassignWorktree = useCallback(async () => {
+    try {
+      await useKanbanStore.getState().updateTicket(ticket.id, ticket.project_id, {
+        worktree_id: null
+      })
+      toast.success('Worktree unassigned')
+    } catch {
+      toast.error('Failed to unassign worktree')
+    }
+  }, [ticket.id, ticket.project_id])
 
   return (
     <>
@@ -311,8 +324,42 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
         </ContextMenuTrigger>
 
         <ContextMenuContent>
-          {/* Assign to worktree — only for simple tickets (no session) */}
-          {isSimpleTicket && (
+          {/* Todo tickets without worktree: pre-assign */}
+          {isSimpleTicket && isTodo && !ticket.worktree_id && (
+            <ContextMenuItem
+              data-testid="ctx-assign-worktree"
+              onClick={() => setShowPreAssignPicker(true)}
+              className="gap-2"
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              Assign worktree
+            </ContextMenuItem>
+          )}
+
+          {/* Todo tickets WITH pre-assigned worktree: change or unassign */}
+          {isSimpleTicket && isTodo && ticket.worktree_id && (
+            <>
+              <ContextMenuItem
+                data-testid="ctx-change-worktree"
+                onClick={() => setShowPreAssignPicker(true)}
+                className="gap-2"
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                Change worktree
+              </ContextMenuItem>
+              <ContextMenuItem
+                data-testid="ctx-unassign-worktree"
+                onClick={handleUnassignWorktree}
+                className="gap-2"
+              >
+                <X className="h-3.5 w-3.5" />
+                Unassign worktree
+              </ContextMenuItem>
+            </>
+          )}
+
+          {/* Non-todo simple tickets: full assign flow (existing behavior) */}
+          {isSimpleTicket && !isTodo && (
             <ContextMenuItem
               data-testid="ctx-assign-worktree"
               onClick={() => setShowWorktreePicker(true)}
@@ -396,12 +443,21 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
         </AlertDialog>
       )}
 
-      {/* Worktree picker modal for assigning */}
+      {/* Worktree picker modal for full assign (non-todo) */}
       <WorktreePickerModal
         ticket={ticket}
         projectId={ticket.project_id}
         open={showWorktreePicker}
         onOpenChange={setShowWorktreePicker}
+      />
+
+      {/* Pre-assign worktree picker (todo column) */}
+      <WorktreePickerModal
+        ticket={ticket}
+        projectId={ticket.project_id}
+        open={showPreAssignPicker}
+        onOpenChange={setShowPreAssignPicker}
+        preAssignOnly
       />
     </>
   )

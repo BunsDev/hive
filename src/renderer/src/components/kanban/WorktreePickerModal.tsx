@@ -45,6 +45,8 @@ interface WorktreePickerModalProps {
   onOpenChange: (open: boolean) => void
   /** Called after a successful send to complete the column move */
   onSendComplete?: () => void
+  /** When true, only assigns worktree_id without creating a session or moving columns */
+  preAssignOnly?: boolean
 }
 
 /** In-memory: last-chosen source branch per project (resets on app restart) */
@@ -74,7 +76,8 @@ export function WorktreePickerModal({
   projectId,
   open,
   onOpenChange,
-  onSendComplete
+  onSendComplete,
+  preAssignOnly = false
 }: WorktreePickerModalProps) {
   const [mode, setMode] = useState<PickerMode>('build')
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null)
@@ -160,12 +163,19 @@ export function WorktreePickerModal({
   useEffect(() => {
     if (open) {
       setMode('build')
-      // Auto-select the current worktree if it belongs to this project
+      // Auto-select: prefer ticket's pre-assigned worktree, then global selection
       const { selectedWorktreeId: currentId, worktreesByProject } =
         useWorktreeStore.getState()
       const projectWts = worktreesByProject.get(projectId) ?? []
-      const match = currentId ? projectWts.find((wt) => wt.id === currentId) : null
-      setSelectedWorktreeId(match ? currentId : null)
+
+      if (ticket.worktree_id && projectWts.some((wt) => wt.id === ticket.worktree_id)) {
+        // Ticket has a pre-assigned worktree that still exists — select it
+        setSelectedWorktreeId(ticket.worktree_id)
+      } else {
+        // Fall back to the globally selected worktree if it belongs to this project
+        const match = currentId ? projectWts.find((wt) => wt.id === currentId) : null
+        setSelectedWorktreeId(match ? currentId : null)
+      }
       setIsNewWorktree(false)
       setPromptText(buildPrompt('build', ticket))
       setIsSending(false)
@@ -200,7 +210,7 @@ export function WorktreePickerModal({
   // Must use window-level capture-phase listener to beat SessionView's
   // global Tab handler which also uses capture and stops propagation.
   useEffect(() => {
-    if (!open) return
+    if (!open || preAssignOnly) return
     const handler = (e: KeyboardEvent): void => {
       if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (branchPopoverOpen) return  // Don't toggle mode while picking a branch
@@ -217,12 +227,12 @@ export function WorktreePickerModal({
     return () => {
       window.removeEventListener('keydown', handler, true)
     }
-  }, [open, toggleMode, branchPopoverOpen])
+  }, [open, toggleMode, branchPopoverOpen, preAssignOnly])
 
   // Keep React keydown for test compatibility (jsdom doesn't have capture-phase issues)
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Tab') {
+      if (e.key === 'Tab' && !preAssignOnly) {
         if (branchPopoverOpen) return
         e.preventDefault()
         toggleMode()
@@ -232,7 +242,7 @@ export function WorktreePickerModal({
         }
       }
     },
-    [toggleMode, branchPopoverOpen]
+    [toggleMode, branchPopoverOpen, preAssignOnly]
   )
 
   // ── Handle worktree selection ───────────────────────────────────
@@ -255,6 +265,40 @@ export function WorktreePickerModal({
 
     try {
       let worktreeId = selectedWorktreeId
+
+      // ── Pre-assign path: only set worktree_id, no session ────────
+      if (preAssignOnly) {
+        // Create new worktree if needed
+        if (isNewWorktree && project) {
+          const targetBranch = sourceBranch ?? defaultBranchName
+          _lastSourceBranchByProject[projectId] = targetBranch
+          const nameHint = canonicalizeTicketTitle(ticket.title)
+          const result = await createWorktreeFromBranch(
+            projectId,
+            project.path,
+            project.name,
+            targetBranch,
+            nameHint || undefined
+          )
+          if (!result.success || !result.worktree?.id) {
+            toast.error(result.error || 'Failed to create worktree')
+            setIsSending(false)
+            return
+          }
+          worktreeId = result.worktree.id
+        }
+
+        if (!worktreeId) {
+          toast.error('No worktree selected')
+          setIsSending(false)
+          return
+        }
+
+        await updateTicket(ticket.id, projectId, { worktree_id: worktreeId })
+        onOpenChange(false)
+        toast.success('Worktree assigned')
+        return
+      }
 
       // Create new worktree if needed
       if (isNewWorktree && project) {
@@ -388,8 +432,10 @@ export function WorktreePickerModal({
     promptText,
     updateTicket,
     ticket.id,
+    ticket.title,
     onSendComplete,
-    onOpenChange
+    onOpenChange,
+    preAssignOnly
   ])
 
   // ── Mode toggle chip ────────────────────────────────────────────
@@ -404,13 +450,15 @@ export function WorktreePickerModal({
         onKeyDown={handleKeyDown}
       >
         <DialogHeader className="space-y-2.5 pb-1">
-          <DialogTitle className="text-base">Start Session</DialogTitle>
+          <DialogTitle className="text-base">
+            {preAssignOnly ? 'Assign Worktree' : 'Start Session'}
+          </DialogTitle>
           <DialogDescription>
-            Pick a worktree for{' '}
+            {preAssignOnly ? 'Pre-assign a worktree to' : 'Pick a worktree for'}{' '}
             <span className="font-medium text-foreground">{ticket.title}</span>
           </DialogDescription>
           {/* Build/Plan chip toggle — below description to avoid overlapping the X close button */}
-          <div>
+          {!preAssignOnly && <div>
             <button
               data-testid="wt-picker-mode-toggle"
               data-mode={mode}
@@ -429,7 +477,7 @@ export function WorktreePickerModal({
               <ModeIcon className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{modeLabel}</span>
             </button>
-          </div>
+          </div>}
         </DialogHeader>
 
         <div className="space-y-5">
@@ -580,25 +628,27 @@ export function WorktreePickerModal({
             </div>
           </div>
 
-          {/* ── Prompt preview / editor ────────────────────────── */}
-          <div className="space-y-2">
-            <label
-              htmlFor="wt-picker-prompt-input"
-              className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
-            >
-              Prompt
-            </label>
-            <Textarea
-              id="wt-picker-prompt-input"
-              ref={promptRef}
-              data-testid="wt-picker-prompt"
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-              rows={6}
-              className="resize-y font-mono text-xs leading-relaxed"
-              placeholder="Enter prompt for the session..."
-            />
-          </div>
+          {/* ── Prompt preview / editor (hidden in pre-assign mode) ── */}
+          {!preAssignOnly && (
+            <div className="space-y-2">
+              <label
+                htmlFor="wt-picker-prompt-input"
+                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                Prompt
+              </label>
+              <Textarea
+                id="wt-picker-prompt-input"
+                ref={promptRef}
+                data-testid="wt-picker-prompt"
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                rows={6}
+                className="resize-y font-mono text-xs leading-relaxed"
+                placeholder="Enter prompt for the session..."
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter className="pt-1">
@@ -617,13 +667,24 @@ export function WorktreePickerModal({
             onClick={handleSend}
             className={cn(
               'gap-1.5',
-              mode === 'build'
-                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-violet-600 hover:bg-violet-700 text-white'
+              preAssignOnly
+                ? ''
+                : mode === 'build'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-violet-600 hover:bg-violet-700 text-white'
             )}
           >
-            <Send className="h-3.5 w-3.5" />
-            {isSending ? 'Starting...' : 'Send'}
+            {preAssignOnly ? (
+              <>
+                <GitBranch className="h-3.5 w-3.5" />
+                {isSending ? 'Assigning...' : 'Assign'}
+              </>
+            ) : (
+              <>
+                <Send className="h-3.5 w-3.5" />
+                {isSending ? 'Starting...' : 'Send'}
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
