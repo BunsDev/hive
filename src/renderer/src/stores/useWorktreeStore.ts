@@ -101,7 +101,7 @@ interface WorktreeState {
     projectId: string,
     projectPath: string,
     projectName: string
-  ) => Promise<{ success: boolean; error?: string }>
+  ) => Promise<{ success: boolean; worktree?: Worktree; error?: string; pullInfo?: unknown }>
   archiveWorktree: (
     worktreeId: string,
     worktreePath: string,
@@ -121,6 +121,13 @@ interface WorktreeState {
   getWorktreesForProject: (projectId: string) => Worktree[]
   getDefaultWorktree: (projectId: string) => Worktree | null
   setCreatingForProject: (projectId: string | null) => void
+  createWorktreeFromBranch: (
+    projectId: string,
+    projectPath: string,
+    projectName: string,
+    branchName: string,
+    nameHint?: string
+  ) => Promise<{ success: boolean; worktree?: Worktree; error?: string }>
   duplicateWorktree: (
     projectId: string,
     projectPath: string,
@@ -237,8 +244,58 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
 
       return {
         success: true,
+        worktree: result.worktree,
         pullInfo: result.pullInfo
       }
+    } catch (error) {
+      set({ creatingForProjectId: null })
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create worktree'
+      }
+    }
+  },
+
+  // Create a new worktree from an existing branch
+  createWorktreeFromBranch: async (
+    projectId: string,
+    projectPath: string,
+    projectName: string,
+    branchName: string,
+    nameHint?: string
+  ) => {
+    set({ creatingForProjectId: projectId })
+    try {
+      const result = await window.worktreeOps.createFromBranch(
+        projectId,
+        projectPath,
+        projectName,
+        branchName,
+        undefined, // prNumber — not used from store
+        nameHint
+      )
+
+      if (!result.success || !result.worktree) {
+        set({ creatingForProjectId: null })
+        return { success: false, error: result.error || 'Failed to create worktree' }
+      }
+
+      // Add to store state (same pattern as createWorktree)
+      set((state) => {
+        const newMap = new Map(state.worktreesByProject)
+        const existing = newMap.get(projectId) || []
+        newMap.set(projectId, [result.worktree!, ...existing])
+        return {
+          worktreesByProject: newMap,
+          selectedWorktreeId: result.worktree!.id,
+          creatingForProjectId: null
+        }
+      })
+
+      // Fire-and-forget: run setup script if configured
+      fireSetupScript(projectId, result.worktree!.id, result.worktree!.path)
+
+      return { success: true, worktree: result.worktree }
     } catch (error) {
       set({ creatingForProjectId: null })
       return {

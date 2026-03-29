@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 10
+export const CURRENT_SCHEMA_VERSION = 14
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -289,5 +289,91 @@ export const MIGRATIONS: Migration[] = [
     up: `ALTER TABLE worktrees ADD COLUMN github_pr_number INTEGER DEFAULT NULL;
          ALTER TABLE worktrees ADD COLUMN github_pr_url TEXT DEFAULT NULL`,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 11,
+    name: 'add_kanban_tickets',
+    up: `
+      CREATE TABLE IF NOT EXISTS kanban_tickets (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        attachments TEXT NOT NULL DEFAULT '[]',
+        "column" TEXT NOT NULL DEFAULT 'todo',
+        sort_order REAL NOT NULL DEFAULT 0,
+        current_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        mode TEXT,
+        plan_ready INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_project ON kanban_tickets(project_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_session ON kanban_tickets(current_session_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_worktree ON kanban_tickets(worktree_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_kanban_tickets_worktree;
+      DROP INDEX IF EXISTS idx_kanban_tickets_session;
+      DROP INDEX IF EXISTS idx_kanban_tickets_project;
+      DROP TABLE IF EXISTS kanban_tickets;
+    `
+  },
+  {
+    version: 12,
+    name: 'add_kanban_archived_at',
+    up: `ALTER TABLE kanban_tickets ADD COLUMN archived_at TEXT DEFAULT NULL`,
+    down: `-- SQLite cannot drop columns; no-op for safety`
+  },
+  {
+    version: 13,
+    name: 'add_ticket_followup_messages',
+    up: `
+      CREATE TABLE IF NOT EXISTS ticket_followup_messages (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES kanban_tickets(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'build',
+        session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        source TEXT NOT NULL DEFAULT 'direct',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ticket_followup_messages_ticket
+        ON ticket_followup_messages(ticket_id, created_at);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_ticket_followup_messages_ticket;
+      DROP TABLE IF EXISTS ticket_followup_messages;
+    `
+  },
+  {
+    version: 14,
+    name: 'add_ticket_followup_messages_role',
+    up: `
+      ALTER TABLE ticket_followup_messages ADD COLUMN role TEXT NOT NULL DEFAULT 'user';
+    `,
+    down: `
+      ALTER TABLE ticket_followup_messages DROP COLUMN role;
+    `
+  },
+  {
+    version: 15,
+    name: 'add_kanban_ticket_external_source',
+    up: `
+      ALTER TABLE kanban_tickets ADD COLUMN external_provider TEXT DEFAULT NULL;
+      ALTER TABLE kanban_tickets ADD COLUMN external_id TEXT DEFAULT NULL;
+      ALTER TABLE kanban_tickets ADD COLUMN external_url TEXT DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_kanban_tickets_external
+        ON kanban_tickets(external_provider, external_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_kanban_tickets_external;
+      ALTER TABLE kanban_tickets DROP COLUMN external_url;
+      ALTER TABLE kanban_tickets DROP COLUMN external_id;
+      ALTER TABLE kanban_tickets DROP COLUMN external_provider;
+    `
   }
 ]

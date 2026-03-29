@@ -155,6 +155,50 @@ interface SessionSearchOptions {
   includeArchived?: boolean
 }
 
+type KanbanTicketColumn = 'todo' | 'in_progress' | 'review' | 'done'
+
+interface KanbanTicket {
+  id: string
+  project_id: string
+  title: string
+  description: string | null
+  attachments: unknown[]
+  column: KanbanTicketColumn
+  sort_order: number
+  current_session_id: string | null
+  worktree_id: string | null
+  mode: 'build' | 'plan' | null
+  plan_ready: boolean
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+}
+
+interface KanbanTicketCreate {
+  project_id: string
+  title: string
+  description?: string | null
+  attachments?: unknown[]
+  column?: KanbanTicketColumn
+  sort_order?: number
+  current_session_id?: string | null
+  worktree_id?: string | null
+  mode?: 'build' | 'plan' | null
+  plan_ready?: boolean
+}
+
+interface KanbanTicketUpdate {
+  title?: string
+  description?: string | null
+  attachments?: unknown[]
+  column?: KanbanTicketColumn
+  sort_order?: number
+  current_session_id?: string | null
+  worktree_id?: string | null
+  mode?: 'build' | 'plan' | null
+  plan_ready?: boolean
+}
+
 declare global {
   interface GhosttyTerminalConfig {
     fontFamily?: string
@@ -436,7 +480,8 @@ declare global {
         projectPath: string,
         projectName: string,
         branchName: string,
-        prNumber?: number
+        prNumber?: number,
+        nameHint?: string
       ) => Promise<{
         success: boolean
         worktree?: Worktree
@@ -479,6 +524,7 @@ declare global {
       onNewSessionShortcut: (callback: () => void) => () => void
       onCloseSessionShortcut: (callback: () => void) => () => void
       onFileSearchShortcut: (callback: () => void) => () => void
+      onEditPaste: (callback: (text: string) => void) => () => void
       onNotificationNavigate: (
         callback: (data: { projectId: string; worktreeId: string; sessionId: string }) => void
       ) => () => void
@@ -846,6 +892,7 @@ declare global {
         mods: number
       ) => Promise<void>
       ghosttySetFocus: (worktreeId: string, focused: boolean) => Promise<void>
+      ghosttyPasteText: (worktreeId: string, text: string) => Promise<void>
       ghosttyDestroySurface: (worktreeId: string) => Promise<void>
       ghosttyShutdown: () => Promise<void>
     }
@@ -1238,6 +1285,79 @@ declare global {
       track: (event: string, properties?: Record<string, unknown>) => Promise<void>
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
+    }
+    kanban: {
+      ticket: {
+        create: (data: KanbanTicketCreate) => Promise<KanbanTicket>
+        get: (id: string) => Promise<KanbanTicket | null>
+        getByProject: (projectId: string) => Promise<KanbanTicket[]>
+        update: (id: string, data: KanbanTicketUpdate) => Promise<KanbanTicket | null>
+        delete: (id: string) => Promise<boolean>
+        archive: (id: string) => Promise<KanbanTicket | null>
+        archiveAllDone: (projectId: string) => Promise<number>
+        unarchive: (id: string) => Promise<KanbanTicket | null>
+        move: (
+          id: string,
+          column: KanbanTicketColumn,
+          sortOrder: number
+        ) => Promise<KanbanTicket | null>
+        reorder: (id: string, sortOrder: number) => Promise<void>
+        getBySession: (sessionId: string) => Promise<KanbanTicket[]>
+      }
+      simpleMode: {
+        toggle: (projectId: string, enabled: boolean) => Promise<void>
+      }
+    }
+    ticketImport: {
+      listProviders: () => Promise<Array<{ id: string; name: string; icon: string }>>
+      getSettingsSchema: (
+        providerId: string
+      ) => Promise<Array<{ key: string; label: string; type: string; required: boolean; placeholder?: string }>>
+      authenticate: (
+        providerId: string,
+        settings: Record<string, string>
+      ) => Promise<{ success: boolean; error: string | null }>
+      detectRepo: (
+        providerId: string,
+        projectPath: string
+      ) => Promise<{ repo: string | null }>
+      listIssues: (
+        providerId: string,
+        repo: string,
+        options: { page: number; perPage: number; state: 'open' | 'closed' | 'all'; search?: string },
+        settings: Record<string, string>
+      ) => Promise<{
+        issues: Array<{
+          externalId: string
+          title: string
+          body: string | null
+          state: 'open' | 'closed'
+          url: string
+          createdAt: string
+          updatedAt: string
+        }>
+        hasNextPage: boolean
+        totalCount: number
+      }>
+      importIssues: (
+        providerId: string,
+        projectId: string,
+        repo: string,
+        issues: Array<{ externalId: string; title: string; body: string | null; state: string; url: string }>
+      ) => Promise<{ imported: string[]; skipped: string[] }>
+      getAvailableStatuses: (
+        providerId: string,
+        repo: string,
+        externalId: string,
+        settings: Record<string, string>
+      ) => Promise<Array<{ id: string; label: string }>>
+      updateRemoteStatus: (
+        providerId: string,
+        repo: string,
+        externalId: string,
+        statusId: string,
+        settings: Record<string, string>
+      ) => Promise<{ success: boolean; error?: string }>
     }
   }
 

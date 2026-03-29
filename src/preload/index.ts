@@ -97,6 +97,7 @@ const db = {
       name?: string | null
       opencode_session_id?: string | null
       agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      mode?: 'build' | 'plan'
       model_provider_id?: string | null
       model_id?: string | null
       model_variant?: string | null
@@ -354,7 +355,8 @@ const worktreeOps = {
     projectPath: string,
     projectName: string,
     branchName: string,
-    prNumber?: number
+    prNumber?: number,
+    nameHint?: string
   ): Promise<{
     success: boolean
     worktree?: {
@@ -374,7 +376,8 @@ const worktreeOps = {
       projectPath,
       projectName,
       branchName,
-      prNumber
+      prNumber,
+      nameHint
     }),
 
   // Subscribe to branch-renamed events (auto-rename from main process)
@@ -460,6 +463,19 @@ const systemOps = {
     ipcRenderer.on('shortcut:file-search', handler)
     return () => {
       ipcRenderer.removeListener('shortcut:file-search', handler)
+    }
+  },
+
+  // Subscribe to Edit > Paste from the application menu.
+  // Used to route paste to the Ghostty terminal when it is the active backend,
+  // since the menu accelerator intercepts Cmd+V before it reaches the native NSView.
+  onEditPaste: (callback: (text: string) => void): (() => void) => {
+    const handler = (_event: unknown, text: string): void => {
+      callback(text)
+    }
+    ipcRenderer.on('edit:paste', handler)
+    return () => {
+      ipcRenderer.removeListener('edit:paste', handler)
     }
   },
 
@@ -1575,6 +1591,9 @@ const terminalOps = {
   ghosttySetFocus: (worktreeId: string, focused: boolean): Promise<void> =>
     ipcRenderer.invoke('terminal:ghostty:setFocus', worktreeId, focused),
 
+  ghosttyPasteText: (worktreeId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke('terminal:ghostty:pasteText', worktreeId, text),
+
   ghosttyDestroySurface: (worktreeId: string): Promise<void> =>
     ipcRenderer.invoke('terminal:ghostty:destroySurface', worktreeId),
 
@@ -1725,6 +1744,113 @@ const analyticsOps = {
   isEnabled: () => ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
 }
 
+const kanban = {
+  ticket: {
+    create: (data: {
+      project_id: string
+      title: string
+      description?: string | null
+      attachments?: unknown[]
+      column?: 'todo' | 'in_progress' | 'review' | 'done'
+      sort_order?: number
+      current_session_id?: string | null
+      worktree_id?: string | null
+      mode?: 'build' | 'plan' | null
+      plan_ready?: boolean
+    }) => ipcRenderer.invoke('kanban:ticket:create', data),
+    get: (id: string) => ipcRenderer.invoke('kanban:ticket:get', id),
+    getByProject: (projectId: string, includeArchived?: boolean) =>
+      ipcRenderer.invoke('kanban:ticket:getByProject', projectId, includeArchived),
+    update: (
+      id: string,
+      data: {
+        title?: string
+        description?: string | null
+        attachments?: unknown[]
+        column?: 'todo' | 'in_progress' | 'review' | 'done'
+        sort_order?: number
+        current_session_id?: string | null
+        worktree_id?: string | null
+        mode?: 'build' | 'plan' | null
+        plan_ready?: boolean
+      }
+    ) => ipcRenderer.invoke('kanban:ticket:update', id, data),
+    delete: (id: string) => ipcRenderer.invoke('kanban:ticket:delete', id),
+    archive: (id: string) => ipcRenderer.invoke('kanban:ticket:archive', id),
+    archiveAllDone: (projectId: string) => ipcRenderer.invoke('kanban:ticket:archiveAllDone', projectId),
+    unarchive: (id: string) => ipcRenderer.invoke('kanban:ticket:unarchive', id),
+    move: (id: string, column: 'todo' | 'in_progress' | 'review' | 'done', sortOrder: number) =>
+      ipcRenderer.invoke('kanban:ticket:move', id, column, sortOrder),
+    reorder: (id: string, sortOrder: number) =>
+      ipcRenderer.invoke('kanban:ticket:reorder', id, sortOrder),
+    getBySession: (sessionId: string) =>
+      ipcRenderer.invoke('kanban:ticket:getBySession', sessionId)
+  },
+  simpleMode: {
+    toggle: (projectId: string, enabled: boolean) =>
+      ipcRenderer.invoke('kanban:simpleMode:toggle', projectId, enabled)
+  }
+}
+
+const ticketImport = {
+  listProviders: (): Promise<Array<{ id: string; name: string; icon: string }>> =>
+    ipcRenderer.invoke('ticketImport:listProviders'),
+  getSettingsSchema: (
+    providerId: string
+  ): Promise<Array<{ key: string; label: string; type: string; required: boolean; placeholder?: string }>> =>
+    ipcRenderer.invoke('ticketImport:getSettingsSchema', providerId),
+  authenticate: (
+    providerId: string,
+    settings: Record<string, string>
+  ): Promise<{ success: boolean; error: string | null }> =>
+    ipcRenderer.invoke('ticketImport:authenticate', providerId, settings),
+  detectRepo: (
+    providerId: string,
+    projectPath: string
+  ): Promise<{ repo: string | null }> =>
+    ipcRenderer.invoke('ticketImport:detectRepo', providerId, projectPath),
+  listIssues: (
+    providerId: string,
+    repo: string,
+    options: { page: number; perPage: number; state: 'open' | 'closed' | 'all'; search?: string },
+    settings: Record<string, string>
+  ): Promise<{
+    issues: Array<{
+      externalId: string
+      title: string
+      body: string | null
+      state: 'open' | 'closed'
+      url: string
+      createdAt: string
+      updatedAt: string
+    }>
+    hasNextPage: boolean
+    totalCount: number
+  }> => ipcRenderer.invoke('ticketImport:listIssues', providerId, repo, options, settings),
+  importIssues: (
+    providerId: string,
+    projectId: string,
+    repo: string,
+    issues: Array<{ externalId: string; title: string; body: string | null; state: string; url: string }>
+  ): Promise<{ imported: string[]; skipped: string[] }> =>
+    ipcRenderer.invoke('ticketImport:importIssues', providerId, projectId, repo, issues),
+  getAvailableStatuses: (
+    providerId: string,
+    repo: string,
+    externalId: string,
+    settings: Record<string, string>
+  ): Promise<Array<{ id: string; label: string }>> =>
+    ipcRenderer.invoke('ticketImport:getAvailableStatuses', providerId, repo, externalId, settings),
+  updateRemoteStatus: (
+    providerId: string,
+    repo: string,
+    externalId: string,
+    statusId: string,
+    settings: Record<string, string>
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('ticketImport:updateRemoteStatus', providerId, repo, externalId, statusId, settings)
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -1746,6 +1872,8 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('connectionOps', connectionOps)
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
+    contextBridge.exposeInMainWorld('kanban', kanban)
+    contextBridge.exposeInMainWorld('ticketImport', ticketImport)
   } catch (error) {
     console.error(error)
   }
@@ -1782,4 +1910,8 @@ if (process.contextIsolated) {
   window.usageOps = usageOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
+  // @ts-expect-error (define in dts)
+  window.kanban = kanban
+  // @ts-expect-error (define in dts)
+  window.ticketImport = ticketImport
 }

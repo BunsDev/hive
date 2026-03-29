@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Resolvers } from '../../__generated__/resolvers-types'
 import { openCodeService } from '../../../main/services/opencode-service'
+import { ClaudeCodeImplementer } from '../../../main/services/claude-code-implementer'
 import {
   withSdkDispatch,
   withSdkDispatchByHiveSession,
@@ -351,6 +352,26 @@ export const opencodeMutationResolvers: Resolvers = {
           (impl) => impl.renameSession(worktreePath ?? '', opencodeSessionId, title)
         )
         return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    },
+
+    opencodeCommandApprovalReply: async (_parent, { input }, ctx) => {
+      try {
+        const { requestId, approved } = input
+        // Command approval is Claude Code specific — route to its implementer
+        if (ctx.sdkManager) {
+          const impl = ctx.sdkManager.getImplementer('claude-code')
+          if (impl instanceof ClaudeCodeImplementer) {
+            impl.handleApprovalReply(requestId, approved)
+            return { success: true }
+          }
+        }
+        return { success: false, error: 'Claude Code implementer not available' }
       } catch (error) {
         return {
           success: false,

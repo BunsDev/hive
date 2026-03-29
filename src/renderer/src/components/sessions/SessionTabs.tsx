@@ -18,8 +18,10 @@ import {
   Loader2,
   AlertCircle,
   Check,
-  TerminalSquare
+  TerminalSquare,
+  Download
 } from 'lucide-react'
+import { KanbanIcon } from '@/components/kanban/KanbanIcon'
 import { useSessionStore } from '@/stores/useSessionStore'
 import {
   useFileViewerStore,
@@ -33,6 +35,9 @@ import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
+import { useKanbanStore } from '@/stores/useKanbanStore'
+import { TicketCreateModal } from '@/components/kanban/TicketCreateModal'
+import { ImportTicketsModal } from '@/components/kanban/ImportTicketsModal'
 import { useVimModeStore } from '@/stores/useVimModeStore'
 import { useHintStore } from '@/stores/useHintStore'
 import { cn, parseColorQuad } from '@/lib/utils'
@@ -63,9 +68,9 @@ interface SessionTabProps {
   onDragEnd: () => void
   isDragging: boolean
   isDragOver: boolean
-  worktreeId: string
-  onCloseOthers: () => void
-  onCloseToRight: () => void
+  worktreeId: string | null
+  onCloseOthers?: () => void
+  onCloseToRight?: () => void
   hintCode?: string
 }
 
@@ -240,8 +245,12 @@ function SessionTab({
           Close
           <ContextMenuShortcut>&#8984;W</ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseOthers}>Close Others</ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseToRight}>Close Others to the Right</ContextMenuItem>
+        {onCloseOthers && (
+          <ContextMenuItem onSelect={onCloseOthers}>Close Others</ContextMenuItem>
+        )}
+        {onCloseToRight && (
+          <ContextMenuItem onSelect={onCloseToRight}>Close Others to the Right</ContextMenuItem>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   )
@@ -500,6 +509,8 @@ export function SessionTabs(): React.JSX.Element | null {
   const [showRightArrow, setShowRightArrow] = useState(false)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
+  const [isTicketCreateOpen, setIsTicketCreateOpen] = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   const {
     activeWorktreeId,
@@ -508,6 +519,7 @@ export function SessionTabs(): React.JSX.Element | null {
     tabOrderByWorktree,
     sessionsByConnection,
     tabOrderByConnection,
+    orphanedSessions,
     loadSessions,
     createSession,
     closeSession,
@@ -525,7 +537,8 @@ export function SessionTabs(): React.JSX.Element | null {
     inlineConnectionSessionId,
     setInlineConnectionSession,
     clearInlineConnectionSession,
-    loadConnectionSessionsBackground
+    loadConnectionSessionsBackground,
+    closeOrphanedSessions
   } = useSessionStore()
 
   const {
@@ -543,6 +556,7 @@ export function SessionTabs(): React.JSX.Element | null {
   const connections = useConnectionStore((state) => state.connections)
   const pushGhosttySuppression = useLayoutStore((state) => state.pushGhosttySuppression)
   const popGhosttySuppression = useLayoutStore((state) => state.popGhosttySuppression)
+  const isBoardViewActive = useKanbanStore((state) => state.isBoardViewActive)
 
   // Determine whether we are in connection mode or worktree mode
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
@@ -564,16 +578,20 @@ export function SessionTabs(): React.JSX.Element | null {
   // Sync active worktree with selected worktree (worktree mode only)
   useEffect(() => {
     if (isConnectionMode) return
+    // Don't sync if we're currently viewing an orphaned session
+    if (activeSessionId && orphanedSessions.has(activeSessionId)) return
     if (selectedWorktreeId !== activeWorktreeId) {
       useSessionStore.getState().setActiveWorktree(selectedWorktreeId)
     }
-  }, [selectedWorktreeId, activeWorktreeId, isConnectionMode])
+  }, [selectedWorktreeId, activeWorktreeId, isConnectionMode, activeSessionId, orphanedSessions])
 
   // Sync active connection with selected connection (connection mode only)
   useEffect(() => {
     if (!isConnectionMode || !selectedConnectionId) return
+    // Don't sync if we're currently viewing an orphaned session
+    if (activeSessionId && orphanedSessions.has(activeSessionId)) return
     useSessionStore.getState().setActiveConnection(selectedConnectionId)
-  }, [selectedConnectionId, isConnectionMode])
+  }, [selectedConnectionId, isConnectionMode, activeSessionId, orphanedSessions])
 
   // Load sessions when worktree changes, then auto-start if the worktree has 0 sessions.
   // Auto-start runs as a direct follow-up to loadSessions (not a separate effect) to
@@ -654,6 +672,11 @@ export function SessionTabs(): React.JSX.Element | null {
   useEffect(() => {
     loadedConnectionsRef.current.clear()
   }, [selectedWorktreeId])
+
+  // Close orphaned sessions when navigating away (worktree or project change)
+  useEffect(() => {
+    closeOrphanedSessions()
+  }, [selectedWorktreeId, selectedConnectionId, closeOrphanedSessions])
 
   // Background-load sessions for all connections the selected worktree belongs to.
   // This is non-blocking and does not enter connection mode.
@@ -916,13 +939,17 @@ export function SessionTabs(): React.JSX.Element | null {
     }
   }, [vimModeEnabled, vimMode, sessionHints, setSessionHints, clearSessionHints])
 
-  // Don't render if nothing is selected
-  if (!selectedWorktreeId && !selectedConnectionId) {
+  // Don't render if nothing is selected AND no orphaned sessions
+  if (!selectedWorktreeId && !selectedConnectionId && orphanedSessions.size === 0) {
     return null
   }
 
-  // After early return, scopeId is guaranteed to be defined
-  const resolvedScopeId = scopeId!
+  // Resolve scopeId (may be undefined if only orphaned sessions exist)
+  const resolvedScopeId = scopeId || null
+
+  // Add orphaned sessions to the list (they appear as additional tabs)
+  const orphanedSessionsList = Array.from(orphanedSessions.values())
+  const allSessions = [...orderedSessions, ...orphanedSessionsList]
 
   // Get file tabs for the current worktree (only regular file tabs, not diff tabs)
   const fileTabs = Array.from(openFiles.values()).filter(
@@ -947,49 +974,61 @@ export function SessionTabs(): React.JSX.Element | null {
       className="flex items-center border-b border-border bg-muted/30"
       data-testid="session-tabs"
     >
-      {/* New session button - on the left */}
-      {/* Right-click shows provider menu with session type options */}
-      <ContextMenu
-        onOpenChange={(open) => {
-          if (open) pushGhosttySuppression('session-tabs-context')
-          else popGhosttySuppression('session-tabs-context')
-        }}
-      >
-        <ContextMenuTrigger asChild>
-          <button
-            onClick={handleCreateSession}
-            className="p-1.5 hover:bg-accent transition-colors shrink-0 border-r border-border"
-            data-testid="create-session"
-            title="Create new session (right-click for options)"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {availableAgentSdks?.opencode && (
-            <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('opencode')}>
-              New OpenCode Session
+      {/* New session / new ticket button - on the left */}
+      {isBoardViewActive ? (
+        /* Kanban mode: plus button opens the ticket creation modal */
+        <button
+          onClick={() => setIsTicketCreateOpen(true)}
+          className="p-1.5 hover:bg-accent transition-colors shrink-0 border-r border-border"
+          data-testid="kanban-add-ticket-btn"
+          title="Create new ticket"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      ) : (
+        /* Normal mode: right-click shows provider menu with session type options */
+        <ContextMenu
+          onOpenChange={(open) => {
+            if (open) pushGhosttySuppression('session-tabs-context')
+            else popGhosttySuppression('session-tabs-context')
+          }}
+        >
+          <ContextMenuTrigger asChild>
+            <button
+              onClick={handleCreateSession}
+              className="p-1.5 hover:bg-accent transition-colors shrink-0 border-r border-border"
+              data-testid="create-session"
+              title="Create new session (right-click for options)"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            {availableAgentSdks?.opencode && (
+              <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('opencode')}>
+                New OpenCode Session
+              </ContextMenuItem>
+            )}
+            {availableAgentSdks?.claude && (
+              <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('claude-code')}>
+                New Claude Code Session
+              </ContextMenuItem>
+            )}
+            {availableAgentSdks?.codex && (
+              <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('codex')}>
+                New Codex Session
+              </ContextMenuItem>
+            )}
+            {(availableAgentSdks?.opencode ||
+              availableAgentSdks?.claude ||
+              availableAgentSdks?.codex) && <ContextMenuSeparator />}
+            <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
+              <TerminalSquare className="h-4 w-4 mr-2 text-emerald-500" />
+              New Terminal
             </ContextMenuItem>
-          )}
-          {availableAgentSdks?.claude && (
-            <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('claude-code')}>
-              New Claude Code Session
-            </ContextMenuItem>
-          )}
-          {availableAgentSdks?.codex && (
-            <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('codex')}>
-              New Codex Session
-            </ContextMenuItem>
-          )}
-          {(availableAgentSdks?.opencode ||
-            availableAgentSdks?.claude ||
-            availableAgentSdks?.codex) && <ContextMenuSeparator />}
-          <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
-            <TerminalSquare className="h-4 w-4 mr-2 text-emerald-500" />
-            New Terminal
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+          </ContextMenuContent>
+        </ContextMenu>
+      )}
 
       {/* Left scroll arrow */}
       {showLeftArrow && (
@@ -1009,166 +1048,197 @@ export function SessionTabs(): React.JSX.Element | null {
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         data-testid="session-tabs-scroll-container"
       >
-        {orderedSessions.length === 0 &&
-        fileTabs.length === 0 &&
-        diffTabs.length === 0 &&
-        contextTabs.length === 0 &&
-        !(
-          !isConnectionMode &&
-          connectionsForWorktree.some((c) => (sessionsByConnection.get(c.id) || []).length > 0)
-        ) ? (
+        {isBoardViewActive ? (
+          /* Kanban board tab */
           <div
-            className="flex items-center px-3 py-1.5 text-sm text-muted-foreground"
-            data-testid="no-sessions"
+            data-testid="kanban-board-tab"
+            onClick={() => {
+              setActiveFile(null)
+              useFileViewerStore.getState().clearActiveDiff()
+              useFileViewerStore.getState().closeContextEditor()
+            }}
+            className={cn(
+              'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
+              'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+              !isFileTabActive
+                ? 'bg-background text-foreground'
+                : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+            )}
           >
-            No sessions yet. Click + to create one.
+            <KanbanIcon className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+            <span className="truncate flex-1">Board</span>
+            {!isFileTabActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
           </div>
         ) : (
-          <>
-            {/* Sticky connection session tabs (worktree mode only) */}
-            {!isConnectionMode &&
-              connectionsForWorktree.map((connection) => {
-                const connectionSessions = sessionsByConnection.get(connection.id) || []
-                const connectionTabOrder = tabOrderByConnection.get(connection.id) || []
-                const orderedConnectionSessions = connectionTabOrder
-                  .map((id) => connectionSessions.find((s) => s.id === id))
-                  .filter((s): s is NonNullable<typeof s> => s !== undefined)
+          /* Normal mode: empty state OR connection tabs + session tabs */
+          orderedSessions.length === 0 &&
+          !(
+            !isConnectionMode &&
+            connectionsForWorktree.some((c) => (sessionsByConnection.get(c.id) || []).length > 0)
+          ) ? (
+            <div
+              className="flex items-center px-3 py-1.5 text-sm text-muted-foreground"
+              data-testid="no-sessions"
+            >
+              No sessions yet. Click + to create one.
+            </div>
+          ) : (
+            <>
+              {/* Sticky connection session tabs (worktree mode only) */}
+              {!isConnectionMode &&
+                connectionsForWorktree.map((connection) => {
+                  const connectionSessions = sessionsByConnection.get(connection.id) || []
+                  const connectionTabOrder = tabOrderByConnection.get(connection.id) || []
+                  const orderedConnectionSessions = connectionTabOrder
+                    .map((id) => connectionSessions.find((s) => s.id === id))
+                    .filter((s): s is NonNullable<typeof s> => s !== undefined)
 
-                if (orderedConnectionSessions.length === 0) return null
+                  if (orderedConnectionSessions.length === 0) return null
 
+                  return (
+                    <Fragment key={connection.id}>
+                      {/* Thin visual separator before each connection group */}
+                      <div className="w-px bg-border/60 self-stretch my-1" aria-hidden="true" />
+                      {orderedConnectionSessions.map((session) => (
+                        <ConnectionSessionTab
+                          key={session.id}
+                          sessionId={session.id}
+                          name={session.name || 'Untitled'}
+                          isActive={session.id === inlineConnectionSessionId && !isFileTabActive}
+                          onClick={() => handleConnectionSessionTabClick(session.id)}
+                          connectionColor={connection.color}
+                          connectionName={connection.name}
+                        />
+                      ))}
+                    </Fragment>
+                  )
+                })}
+
+              {/* Session tabs */}
+              {allSessions.map((session) => {
+                const isOrphaned = orphanedSessions.has(session.id)
                 return (
-                  <Fragment key={connection.id}>
-                    {/* Thin visual separator before each connection group */}
-                    <div className="w-px bg-border/60 self-stretch my-1" aria-hidden="true" />
-                    {orderedConnectionSessions.map((session) => (
-                      <ConnectionSessionTab
-                        key={session.id}
-                        sessionId={session.id}
-                        name={session.name || 'Untitled'}
-                        isActive={session.id === inlineConnectionSessionId && !isFileTabActive}
-                        onClick={() => handleConnectionSessionTabClick(session.id)}
-                        connectionColor={connection.color}
-                        connectionName={connection.name}
-                      />
-                    ))}
-                  </Fragment>
+                  <SessionTab
+                    key={session.id}
+                    sessionId={session.id}
+                    name={session.name || 'Untitled'}
+                    agentSdk={session.agent_sdk}
+                    isActive={
+                      session.id === activeSessionId && !isFileTabActive && !inlineConnectionSessionId
+                    }
+                    onClick={() => handleSessionTabClick(session.id)}
+                    onClose={(e) => handleCloseSession(e, session.id)}
+                    onMiddleClick={(e) => handleCloseSession(e, session.id)}
+                    onRename={(newName) => handleRenameSession(session.id, newName)}
+                    onDragStart={(e) => handleDragStart(e, session.id)}
+                    onDragOver={(e) => handleDragOver(e, session.id)}
+                    onDrop={(e) => handleDrop(e, session.id)}
+                    onDragEnd={handleDragEnd}
+                    isDragging={draggedTabId === session.id}
+                    isDragOver={dragOverTabId === session.id}
+                    worktreeId={resolvedScopeId}
+                    onCloseOthers={
+                      isOrphaned || !resolvedScopeId
+                        ? undefined
+                        : () =>
+                            isConnectionMode
+                              ? closeOtherConnectionSessions(resolvedScopeId, session.id)
+                              : closeOtherSessions(resolvedScopeId, session.id)
+                    }
+                    onCloseToRight={
+                      isOrphaned || !resolvedScopeId
+                        ? undefined
+                        : () =>
+                            isConnectionMode
+                              ? closeConnectionSessionsToRight(resolvedScopeId, session.id)
+                              : closeSessionsToRight(resolvedScopeId, session.id)
+                    }
+                    hintCode={sessionHints.sessionHintMap.get(session.id)}
+                  />
                 )
               })}
-
-            {/* Session tabs */}
-            {orderedSessions.map((session) => (
-              <SessionTab
-                key={session.id}
-                sessionId={session.id}
-                name={session.name || 'Untitled'}
-                agentSdk={session.agent_sdk}
-                isActive={
-                  session.id === activeSessionId && !isFileTabActive && !inlineConnectionSessionId
-                }
-                onClick={() => handleSessionTabClick(session.id)}
-                onClose={(e) => handleCloseSession(e, session.id)}
-                onMiddleClick={(e) => handleCloseSession(e, session.id)}
-                onRename={(newName) => handleRenameSession(session.id, newName)}
-                onDragStart={(e) => handleDragStart(e, session.id)}
-                onDragOver={(e) => handleDragOver(e, session.id)}
-                onDrop={(e) => handleDrop(e, session.id)}
-                onDragEnd={handleDragEnd}
-                isDragging={draggedTabId === session.id}
-                isDragOver={dragOverTabId === session.id}
-                worktreeId={resolvedScopeId}
-                onCloseOthers={() =>
-                  isConnectionMode
-                    ? closeOtherConnectionSessions(resolvedScopeId, session.id)
-                    : closeOtherSessions(resolvedScopeId, session.id)
-                }
-                onCloseToRight={() =>
-                  isConnectionMode
-                    ? closeConnectionSessionsToRight(resolvedScopeId, session.id)
-                    : closeSessionsToRight(resolvedScopeId, session.id)
-                }
-                hintCode={sessionHints.sessionHintMap.get(session.id)}
-              />
-            ))}
-            {/* File viewer tabs */}
-            {fileTabs.map((file) => {
-              const worktreePath = selectedWorktree?.path || ''
-              const relativePath =
-                worktreePath && file.path.startsWith(worktreePath)
-                  ? file.path.slice(worktreePath.length + 1)
-                  : file.name
-              return (
-                <FileTab
-                  key={file.path}
-                  filePath={file.path}
-                  name={file.name}
-                  isActive={isFileTabActive && activeFilePath === file.path}
-                  onClick={() => handleFileTabClick(file.path)}
-                  onClose={(e) => handleCloseFileTab(e, file.path)}
-                  onCloseOthers={() => closeOtherFiles(file.path)}
-                  onCloseToRight={() => closeFilesToRight(file.path)}
-                  relativePath={relativePath}
-                />
-              )
-            })}
-            {/* Diff viewer tabs */}
-            {diffTabs.map(([key, tab]) => (
-              <DiffTabItem
-                key={key}
-                tabKey={key}
-                tab={tab}
-                isActive={isFileTabActive && activeFilePath === key}
-                onActivate={() => handleDiffTabClick(key)}
-                onClose={(e) => handleCloseDiffTab(e, key)}
-                onCloseOthers={() => closeOtherFiles(key)}
-                onCloseToRight={() => closeFilesToRight(key)}
-              />
-            ))}
-            {/* Context editor tabs */}
-            {contextTabs.map(([key, tab]) => (
-              <div
-                key={key}
-                data-testid={`context-tab-${tab.worktreeId}`}
-                onClick={() => {
-                  useFileViewerStore.getState().activateContextEditor(tab.worktreeId)
-                }}
-                onMouseDown={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault()
-                    useFileViewerStore.getState().closeContextEditor()
-                  }
-                }}
-                className={cn(
-                  'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
-                  'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
-                  isFileTabActive && activeFilePath === key
-                    ? 'bg-background text-foreground'
-                    : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-                )}
-                title="Worktree Context"
-              >
-                <FileText className="h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
-                <span className="truncate flex-1">Context</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useFileViewerStore.getState().closeContextEditor()
-                  }}
-                  className={cn(
-                    'p-0.5 rounded hover:bg-accent transition-opacity',
-                    isFileTabActive && activeFilePath === key
-                      ? 'opacity-100'
-                      : 'opacity-0 group-hover:opacity-100'
-                  )}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-                {isFileTabActive && activeFilePath === key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-                )}
-              </div>
-            ))}
-          </>
+            </>
+          )
         )}
+
+        {/* File viewer tabs — always rendered, shared across both modes */}
+        {fileTabs.map((file) => {
+          const worktreePath = selectedWorktree?.path || ''
+          const relativePath =
+            worktreePath && file.path.startsWith(worktreePath)
+              ? file.path.slice(worktreePath.length + 1)
+              : file.name
+          return (
+            <FileTab
+              key={file.path}
+              filePath={file.path}
+              name={file.name}
+              isActive={isFileTabActive && activeFilePath === file.path}
+              onClick={() => handleFileTabClick(file.path)}
+              onClose={(e) => handleCloseFileTab(e, file.path)}
+              onCloseOthers={() => closeOtherFiles(file.path)}
+              onCloseToRight={() => closeFilesToRight(file.path)}
+              relativePath={relativePath}
+            />
+          )
+        })}
+        {/* Diff viewer tabs */}
+        {diffTabs.map(([key, tab]) => (
+          <DiffTabItem
+            key={key}
+            tabKey={key}
+            tab={tab}
+            isActive={isFileTabActive && activeFilePath === key}
+            onActivate={() => handleDiffTabClick(key)}
+            onClose={(e) => handleCloseDiffTab(e, key)}
+            onCloseOthers={() => closeOtherFiles(key)}
+            onCloseToRight={() => closeFilesToRight(key)}
+          />
+        ))}
+        {/* Context editor tabs */}
+        {contextTabs.map(([key, tab]) => (
+          <div
+            key={key}
+            data-testid={`context-tab-${tab.worktreeId}`}
+            onClick={() => {
+              useFileViewerStore.getState().activateContextEditor(tab.worktreeId)
+            }}
+            onMouseDown={(e) => {
+              if (e.button === 1) {
+                e.preventDefault()
+                useFileViewerStore.getState().closeContextEditor()
+              }
+            }}
+            className={cn(
+              'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
+              'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+              isFileTabActive && activeFilePath === key
+                ? 'bg-background text-foreground'
+                : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+            )}
+            title="Worktree Context"
+          >
+            <FileText className="h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
+            <span className="truncate flex-1">Context</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                useFileViewerStore.getState().closeContextEditor()
+              }}
+              className={cn(
+                'p-0.5 rounded hover:bg-accent transition-opacity',
+                isFileTabActive && activeFilePath === key
+                  ? 'opacity-100'
+                  : 'opacity-0 group-hover:opacity-100'
+              )}
+            >
+              <X className="h-3 w-3" />
+            </button>
+            {isFileTabActive && activeFilePath === key && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+            )}
+          </div>
+        ))}
       </div>
 
       {/* Right scroll arrow */}
@@ -1180,6 +1250,36 @@ export function SessionTabs(): React.JSX.Element | null {
         >
           <ChevronRight className="h-4 w-4" />
         </button>
+      )}
+
+      {/* Import button — kanban mode, sits on the tab bar line */}
+      {isBoardViewActive && (
+        <button
+          onClick={() => setShowImport(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0 border-l border-border cursor-pointer select-none"
+          data-testid="kanban-import-btn"
+          title="Import tickets"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Import
+        </button>
+      )}
+
+      {/* Ticket creation modal — kanban mode */}
+      {isBoardViewActive && project && (
+        <>
+          <TicketCreateModal
+            open={isTicketCreateOpen}
+            onOpenChange={setIsTicketCreateOpen}
+            projectId={project.id}
+          />
+          <ImportTicketsModal
+            open={showImport}
+            onOpenChange={setShowImport}
+            projectId={project.id}
+            projectPath={project.path}
+          />
+        </>
       )}
     </div>
   )

@@ -12,8 +12,10 @@ import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
+import { computeTokenDelta } from '@/lib/token-baselines'
 import { messageSendTimes } from '@/lib/message-send-times'
 import { checkAutoApprove } from '@/lib/permissionUtils'
+import { useKanbanStore } from '@/stores/useKanbanStore'
 
 interface PromptDispatchContext {
   worktreePath: string
@@ -114,7 +116,8 @@ function markBackgroundSessionCompleted(sessionId: string): void {
   const sendTime = messageSendTimes.get(sessionId)
   const durationMs = sendTime ? Date.now() - sendTime : 0
   const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
-  useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'completed', { word, durationMs })
+  const tokenDelta = computeTokenDelta(sessionId)
+  useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'completed', { word, durationMs, tokenDelta })
 
   const now = Date.now()
   const sessions = useSessionStore.getState().sessionsByWorktree
@@ -183,7 +186,11 @@ export function useOpenCodeGlobalListener(): void {
     const unsubscribe = window.opencodeOps?.onStream
       ? window.opencodeOps.onStream((event) => {
           const sessionId = event.sessionId
-          const activeId = useSessionStore.getState().activeSessionId
+          // When the kanban board is showing, SessionView isn't mounted —
+          // treat the "active" session as a background session so the global
+          // listener handles its status badges, completion, permissions, etc.
+          const rawActiveId = useSessionStore.getState().activeSessionId
+          const activeId = useKanbanStore.getState().isBoardViewActive ? null : rawActiveId
 
           // Handle model limits from Claude Code session init
           if (event.type === 'session.model_limits') {

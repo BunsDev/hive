@@ -84,7 +84,7 @@ export interface WorktreeUpdate {
   last_accessed_at?: string
 }
 
-export type SessionMode = 'build' | 'plan'
+export type SessionMode = 'build' | 'plan' | 'super-plan'
 
 export interface Session {
   id: string
@@ -111,6 +111,7 @@ export interface SessionCreate {
   name?: string | null
   opencode_session_id?: string | null
   agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  mode?: SessionMode
   model_provider_id?: string | null
   model_id?: string | null
   model_variant?: string | null
@@ -326,4 +327,76 @@ export interface SessionSearchOptions {
   dateFrom?: string
   dateTo?: string
   includeArchived?: boolean
+}
+
+// Kanban ticket types
+export type KanbanTicketColumn = 'todo' | 'in_progress' | 'review' | 'done'
+
+export interface KanbanTicket {
+  id: string
+  project_id: string
+  title: string
+  description: string | null
+  attachments: unknown[] // Parsed JSON array (stored as TEXT in DB)
+  column: KanbanTicketColumn
+  sort_order: number
+  current_session_id: string | null
+  worktree_id: string | null
+  mode: 'build' | 'plan' | 'super-plan' | null
+  plan_ready: boolean // Mapped from INTEGER 0/1 in DB
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+  external_provider: string | null
+  external_id: string | null
+  external_url: string | null
+}
+
+export interface KanbanTicketCreate {
+  project_id: string
+  title: string
+  description?: string | null
+  attachments?: unknown[]
+  column?: KanbanTicketColumn
+  sort_order?: number
+  current_session_id?: string | null
+  worktree_id?: string | null
+  mode?: 'build' | 'plan' | 'super-plan' | null
+  plan_ready?: boolean
+  external_provider?: string | null
+  external_id?: string | null
+  external_url?: string | null
+}
+
+export interface KanbanTicketUpdate {
+  title?: string
+  description?: string | null
+  attachments?: unknown[]
+  column?: KanbanTicketColumn
+  sort_order?: number
+  current_session_id?: string | null
+  worktree_id?: string | null
+  mode?: 'build' | 'plan' | 'super-plan' | null
+  plan_ready?: boolean
+}
+
+// Ticket followup message types
+export interface TicketFollowupMessage {
+  id: string
+  ticket_id: string
+  content: string
+  role: 'user' | 'assistant'
+  mode: 'build' | 'plan' | 'super-plan'
+  session_id: string | null
+  source: 'direct' | 'supercharge' | 'error_retry'
+  created_at: string
+}
+
+export interface TicketFollowupMessageCreate {
+  ticket_id: string
+  content: string
+  role?: 'user' | 'assistant'
+  mode: 'build' | 'plan' | 'super-plan'
+  session_id?: string | null
+  source?: 'direct' | 'supercharge' | 'error_retry'
 }

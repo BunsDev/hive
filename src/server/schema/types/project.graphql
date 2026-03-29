@@ -29,8 +29,26 @@ type Worktree {
   lastModelProviderId: String
   lastModelId: String
   lastModelVariant: String
+  attachments: [Attachment!]!
+  pinned: Boolean!
+  context: String
+  githubPrNumber: Int
+  githubPrUrl: String
   createdAt: String!
   lastAccessedAt: String!
+}
+
+type Attachment {
+  id: String!
+  type: String!
+  url: String!
+  label: String!
+}
+
+input AttachmentInput {
+  type: String!
+  url: String!
+  label: String!
 }
 
 type Session {
@@ -165,6 +183,8 @@ input CreateFromBranchInput {
   projectPath: String!
   projectName: String!
   branchName: String!
+  prNumber: Int
+  nameHint: String
 }
 
 input UpdateWorktreeInput {

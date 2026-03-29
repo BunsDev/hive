@@ -25,7 +25,8 @@ import {
   cleanupTerminals,
   registerUpdaterHandlers,
   registerConnectionHandlers,
-  registerUsageHandlers
+  registerUsageHandlers,
+  registerKanbanHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -40,6 +41,8 @@ import { AgentSdkManager } from './services/agent-sdk-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
+import { registerTicketImportHandlers } from './ipc/ticket-import-handlers'
+import { initTicketProviderManager, GitHubProvider } from './services/ticket-providers'
 
 const log = createLogger({ component: 'Main' })
 
@@ -535,6 +538,9 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerConnectionHandlers()
   registerUsageHandlers()
+  registerKanbanHandlers()
+  initTicketProviderManager([new GitHubProvider()])
+  registerTicketImportHandlers()
 
   // Telemetry IPC
   ipcMain.handle(

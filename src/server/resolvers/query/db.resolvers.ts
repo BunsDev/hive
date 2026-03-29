@@ -28,6 +28,12 @@ function mapProject(row: any) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapWorktree(row: any) {
   if (!row) return null
+  let attachments: { id: string; type: string; url: string; label: string }[] = []
+  try {
+    attachments = JSON.parse(row.attachments || '[]')
+  } catch {
+    attachments = []
+  }
   return {
     id: row.id,
     projectId: row.project_id,
@@ -42,6 +48,11 @@ function mapWorktree(row: any) {
     lastModelProviderId: row.last_model_provider_id,
     lastModelId: row.last_model_id,
     lastModelVariant: row.last_model_variant,
+    attachments,
+    pinned: Boolean(row.pinned),
+    context: row.context ?? null,
+    githubPrNumber: row.github_pr_number ?? null,
+    githubPrUrl: row.github_pr_url ?? null,
     createdAt: row.created_at,
     lastAccessedAt: row.last_accessed_at
   }
@@ -111,6 +122,9 @@ export const dbQueryResolvers: Resolvers = {
     projectByPath: async (_parent, { path }, ctx) => {
       return mapProject(ctx.db.getProjectByPath(path))
     },
+    projectIdsSortedByLastMessage: async (_parent, _args, ctx) => {
+      return ctx.db.getProjectIdsSortedByLastMessage()
+    },
 
     // -- Worktrees (Session 33) --
     worktree: async (_parent, { id }, ctx) => {
@@ -121,6 +135,12 @@ export const dbQueryResolvers: Resolvers = {
     },
     activeWorktreesByProject: async (_parent, { projectId }, ctx) => {
       return ctx.db.getActiveWorktreesByProject(projectId).map(mapWorktree)
+    },
+    pinnedWorktrees: async (_parent, _args, ctx) => {
+      return ctx.db.getPinnedWorktrees().map(mapWorktree)
+    },
+    recentlyActiveWorktrees: async (_parent, { cutoffMs }, ctx) => {
+      return ctx.db.getRecentlyActiveWorktrees(cutoffMs).map(mapWorktree)
     },
 
     // -- Sessions (Session 34) --

@@ -10,6 +10,9 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
+import { useKanbanStore } from '@/stores/useKanbanStore'
+import { useProjectStore } from '@/stores/useProjectStore'
+import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 
 const MonacoDiffView = lazy(() => import('@/components/diff/MonacoDiffView'))
 const WorktreeContextEditor = lazy(() =>
@@ -32,6 +35,11 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const contextEditorWorktreeId = useFileViewerStore((state) => state.contextEditorWorktreeId)
   const closedTerminalSessionIds = useSessionStore((state) => state.closedTerminalSessionIds)
   const ghosttyOverlaySuppressed = useLayoutStore((state) => state.ghosttyOverlaySuppressed)
+  const isBoardViewActive = useKanbanStore((state) => state.isBoardViewActive)
+  const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
+  const selectedProjectPath = useProjectStore((state) =>
+    state.projects.find((p) => p.id === state.selectedProjectId)?.path ?? ''
+  )
 
   // Subscribe to session maps so terminal list stays reactive
   const sessionsByWorktree = useSessionStore((state) => state.sessionsByWorktree)
@@ -167,6 +175,12 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
           </div>
         </div>
       )
+    }
+
+    // Kanban board view takes priority when active and a project is selected
+    // but yields to file/diff/context views when their tab is active
+    if (isBoardViewActive && selectedProjectId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+      return <KanbanBoard projectId={selectedProjectId} projectPath={selectedProjectPath} />
     }
 
     // Loading sessions (including auto-start)

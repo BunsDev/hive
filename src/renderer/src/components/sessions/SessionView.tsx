@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
-import { Send, ListPlus, Loader2, AlertCircle, RefreshCw, Square, X, Github, Minimize2 } from 'lucide-react'
+import { Send, ListPlus, Loader2, AlertCircle, RefreshCw, Square, Archive, X, Github, Minimize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { ProviderIcon } from '@/components/ui/provider-icon'
 import { toast } from '@/lib/toast'
 import { MessageRenderer } from './MessageRenderer'
 import { ModeToggle } from './ModeToggle'
@@ -10,15 +11,19 @@ import { QueuedMessageBubble } from './QueuedMessageBubble'
 import { ContextIndicator } from './ContextIndicator'
 import { AttachmentButton } from './AttachmentButton'
 import { AttachmentPreview } from './AttachmentPreview'
+import { TicketAttachments } from './TicketAttachments'
 import { CodexFastToggle } from './CodexFastToggle'
 import type { Attachment } from './AttachmentPreview'
-import { buildMessageParts, MAX_ATTACHMENTS } from '@/lib/file-attachment-utils'
+import { buildMessageParts, buildDisplayContent, MAX_ATTACHMENTS } from '@/lib/file-attachment-utils'
+import { TicketPickerModal } from '@/components/kanban/TicketPickerModal'
+import type { TicketAttachmentData } from '@/components/kanban/TicketPickerModal'
 import { SlashCommandPopover } from './SlashCommandPopover'
 import { FileMentionPopover } from './FileMentionPopover'
 import { ScrollToBottomFab } from './ScrollToBottomFab'
 import { PlanReadyImplementFab } from './PlanReadyImplementFab'
 import { IndeterminateProgressBar } from './IndeterminateProgressBar'
 import { useFileMentions } from '@/hooks/useFileMentions'
+import { useSessionTimer } from '@/hooks/useSessionTimer'
 import type { FlatFile } from '@/lib/file-search-utils'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
@@ -40,14 +45,17 @@ import { checkAutoApprove } from '@/lib/permissionUtils'
 import { usePromptHistoryStore } from '@/stores/usePromptHistoryStore'
 import { useWorktreeStore, useDropAttachmentStore } from '@/stores'
 import { useProjectStore } from '@/stores/useProjectStore'
+import { useKanbanStore } from '@/stores/useKanbanStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { usePRReviewStore } from '@/stores/usePRReviewStore'
 import { useFileTreeStore } from '@/stores/useFileTreeStore'
 import { mapOpencodeMessagesToSessionViewMessages } from '@/lib/opencode-transcript'
 import { appendStreamedAssistantFallback } from '@/lib/transcript-refresh'
 import { deriveCodexTimelineMessages, mergeCodexActivityMessages } from '@/lib/codex-timeline'
-import { COMPLETION_WORDS, formatCompletionDuration, formatElapsedTimer } from '@/lib/format-utils'
+import { COMPLETION_WORDS, formatCompletionDuration } from '@/lib/format-utils'
 import { messageSendTimes, lastSendMode, userExplicitSendTimes } from '@/lib/message-send-times'
+import { snapshotTokenBaseline, computeTokenDelta } from '@/lib/token-baselines'
+import { notifyKanbanSessionSync } from '@/stores/store-coordination'
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 import { buildPlanImplementationPrompt, looksLikeCodexProposedPlan } from '@/lib/proposedPlan'
 import beeIcon from '@/assets/bee.png'
@@ -58,7 +66,28 @@ import { QuestionPrompt } from './QuestionPrompt'
 import { PermissionPrompt } from './PermissionPrompt'
 import { CommandApprovalPrompt } from './CommandApprovalPrompt'
 import type { ToolStatus, ToolUseInfo } from './ToolCard'
-import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX, stripPlanModePrefix } from '@/lib/constants'
+import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX, SUPER_PLAN_MODE_PREFIX, stripPlanModePrefix, isPlanLike } from '@/lib/constants'
+
+/**
+ * Resolve an OpenCode session ID to the corresponding Hive session ID
+ * by looking up sessions with a matching `opencode_session_id` in the store.
+ * Returns null if no matching Hive session is found.
+ */
+function resolveHiveSessionIdFromOpencodeId(opencodeSessionId: string): string | null {
+  const sessionState = useSessionStore.getState()
+
+  for (const sessions of sessionState.sessionsByWorktree.values()) {
+    const match = sessions.find((s) => s.opencode_session_id === opencodeSessionId)
+    if (match) return match.id
+  }
+
+  for (const sessions of sessionState.sessionsByConnection.values()) {
+    const match = sessions.find((s) => s.opencode_session_id === opencodeSessionId)
+    if (match) return match.id
+  }
+
+  return null
+}
 
 interface SlashCommandInfo {
   name: string
@@ -384,7 +413,7 @@ function PrCommentAttachments(): React.JSX.Element | null {
             className="group relative flex flex-col gap-1 px-3 py-2 rounded-lg bg-background border border-border text-sm max-w-[400px] min-w-[220px]"
           >
             <div className="flex items-center gap-2">
-              <Github className="h-3.5 w-3.5 shrink-0 text-foreground" />
+              <ProviderIcon provider="github" />
               <img
                 src={c.user.avatarUrl}
                 alt={c.user.login}
@@ -426,6 +455,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     }>
   >([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [ticketPickerOpen, setTicketPickerOpen] = useState(false)
 
   // Consume files dropped from Finder via the global drop zone
   const pendingDropFiles = useDropAttachmentStore((s) => s.pending)
@@ -503,7 +533,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const [sessionErrorMessage, setSessionErrorMessage] = useState<string | null>(null)
   const [sessionErrorStderr, setSessionErrorStderr] = useState<string | null>(null)
   const [retryTickMs, setRetryTickMs] = useState<number>(Date.now())
-  const [elapsedTickMs, setElapsedTickMs] = useState(Date.now())
+  const [planSavedAsTicket, setPlanSavedAsTicket] = useState(false)
 
   // Prompt history key: works for both worktree and connection sessions
   const historyKey = worktreeId ?? connectionId
@@ -539,8 +569,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       const found = sessions.find((session) => session.id === sessionId)
       if (found) return found
     }
+    // Check orphaned sessions
+    const orphaned = state.orphanedSessions.get(sessionId)
+    if (orphaned) return orphaned
     return null
   })
+
+  // Check if this is an orphaned (read-only) session
+  const isOrphanedSession = useSessionStore((state) => state.orphanedSessions.has(sessionId))
   const sessionAgentSdk = sessionRecord?.agent_sdk ?? 'opencode'
   const globalModel = useSettingsStore((state) => resolveModelForSdk(sessionAgentSdk, state))
   const effectiveModel: SelectedModel | null =
@@ -919,7 +955,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       // Question answered/dismissed — restore status based on session mode
       if (currentStatus?.status === 'answering') {
         const currentMode = useSessionStore.getState().getSessionMode(sessionId)
-        statusStore.setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+        statusStore.setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
       }
     }
   }, [activeQuestion, sessionId])
@@ -936,10 +972,41 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     } else if (!activePermission && sessionId) {
       if (currentStatus?.status === 'permission') {
         const currentMode = useSessionStore.getState().getSessionMode(sessionId)
-        statusStore.setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+        statusStore.setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
       }
     }
   }, [activePermission, sessionId])
+
+  // Periodic permission hydration while the session is actively streaming.
+  // The live SSE event path may occasionally miss `permission.asked` events
+  // (e.g., due to event format mismatches), so we poll the REST API as a
+  // safety net to ensure the permission dialog appears promptly.
+  useEffect(() => {
+    if (!isStreaming || !worktreePath || activePermission) return
+
+    // First check after a short delay, then periodic
+    const timerId = setInterval(() => {
+      window.opencodeOps
+        ?.permissionList(worktreePath)
+        .then((result) => {
+          if (result.success && result.permissions) {
+            for (const req of result.permissions) {
+              const r = req as PermissionRequest
+              if (r.id && r.permission) {
+                const targetSessionId =
+                  (r.sessionID && resolveHiveSessionIdFromOpencodeId(r.sessionID)) || sessionId
+                usePermissionStore.getState().addPermission(targetSessionId, r)
+              }
+            }
+          }
+        })
+        .catch(() => {
+          // Silently ignore — this is a best-effort check
+        })
+    }, 3000)
+
+    return () => clearInterval(timerId)
+  }, [isStreaming, worktreePath, activePermission, sessionId])
 
   // Clean up rAF-based streaming and scroll guards on unmount
   useEffect(() => {
@@ -1603,7 +1670,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   const mode = useSessionStore.getState().getSessionMode(sessionId)
                   useWorktreeStatusStore
                     .getState()
-                    .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
+                    .setSessionStatus(sessionId, isPlanLike(mode) ? 'planning' : 'working')
                 }
               }
             }
@@ -1746,6 +1813,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             if (event.childSessionId) return
             setSessionErrorMessage(extractSessionErrorMessage(event.data))
             setSessionErrorStderr(extractSessionErrorStderr(event.data))
+            // Notify kanban store so errored tickets auto-move to review
+            notifyKanbanSessionSync(sessionId, { type: 'session_error' })
             return
           }
 
@@ -2214,7 +2283,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             immediateFlush()
             setIsSending(false)
             setIsCompacting(false)
-            setQueuedMessages([])
+            // Only clear visual queue if no follow-ups remain
+            const hasFollowUps =
+              (useSessionStore.getState().pendingFollowUpMessages.get(sessionId)?.length ?? 0) > 0
+            if (!hasFollowUps) {
+              setQueuedMessages([])
+            }
             // Clear any stale command approvals when session goes idle
             useCommandApprovalStore.getState().clearSession(sessionId)
 
@@ -2250,7 +2324,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               const currentMode = useSessionStore.getState().getSessionMode(sessionId)
               useWorktreeStatusStore
                 .getState()
-                .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+                .setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
             } else if (status.type === 'idle') {
               // Don't overwrite plan_ready — session is blocked waiting for plan approval
               if (useSessionStore.getState().getPendingPlan(sessionId)) return
@@ -2260,6 +2334,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               // If there are queued follow-up messages, send the next one instead of finalizing
               const followUp = useSessionStore.getState().consumeFollowUpMessage(sessionId)
               if (followUp) {
+                // Remove the first visual queued bubble (FIFO matches persistent queue order)
+                setQueuedMessages((prev) => prev.slice(1))
                 hasFinalizedCurrentResponseRef.current = false
                 setIsSending(true)
                 setMessages((prev) => [...prev, createLocalMessage('user', followUp)])
@@ -2312,8 +2388,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               const sendTime = messageSendTimes.get(sessionId)
               const durationMs = sendTime ? Date.now() - sendTime : 0
               const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
+              const tokenDelta = computeTokenDelta(sessionId)
               const statusStore = useWorktreeStatusStore.getState()
-              statusStore.setSessionStatus(sessionId, 'completed', { word, durationMs })
+              statusStore.setSessionStatus(sessionId, 'completed', { word, durationMs, tokenDelta })
             } else if (status.type === 'retry') {
               setIsStreaming(true)
               setIsSending(true)
@@ -2586,7 +2663,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             })
         }
 
-        // Hydrate any pending permission requests (fire-and-forget)
+        // Hydrate any pending permission requests (fire-and-forget).
+        // The REST endpoint returns ALL pending permissions for the directory,
+        // so we use PermissionRequest.sessionID (OpenCode session ID) to route
+        // each permission to the correct Hive session rather than blindly
+        // assigning to the mounting session.
         const hydratePermissions = (path: string): void => {
           window.opencodeOps
             .permissionList(path)
@@ -2595,7 +2676,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 for (const req of result.permissions) {
                   const r = req as PermissionRequest
                   if (r.id && r.permission) {
-                    usePermissionStore.getState().addPermission(sessionId, r)
+                    const targetSessionId =
+                      (r.sessionID && resolveHiveSessionIdFromOpencodeId(r.sessionID)) || sessionId
+                    usePermissionStore.getState().addPermission(targetSessionId, r)
                   }
                 }
               }
@@ -2632,14 +2715,18 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Start completion timer for auto-sent pending prompts (e.g. PR creation)
             messageSendTimes.set(sessionId, Date.now())
             userExplicitSendTimes.set(sessionId, Date.now())
+            snapshotTokenBaseline(sessionId)
             // Set worktree status based on session mode
             const currentMode = useSessionStore.getState().getSessionMode(sessionId)
             lastSendMode.set(sessionId, currentMode)
             useWorktreeStatusStore
               .getState()
-              .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+              .setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
             // Apply mode prefix for OpenCode sessions (Claude Code uses native plan mode)
-            const modePrefix = currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
+            const modePrefix =
+              currentMode === 'super-plan' ? SUPER_PLAN_MODE_PREFIX
+              : currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX
+              : ''
             const promptMessage = modePrefix + pendingMsg
             // Store the full prompt so the stream handler can detect SDK echoes
             lastSentPromptRef.current = promptMessage
@@ -2722,7 +2809,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 const currentMode = useSessionStore.getState().getSessionMode(sessionId)
                 useWorktreeStatusStore
                   .getState()
-                  .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+                  .setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
               }
             } else if (reconnectResult.sessionStatus === 'idle') {
               if (!hasPendingPlanOnReconnect) {
@@ -2737,9 +2824,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   const sendTime = messageSendTimes.get(sessionId)
                   const durationMs = sendTime ? Date.now() - sendTime : 0
                   const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
+                  const tokenDelta = computeTokenDelta(sessionId)
                   useWorktreeStatusStore
                     .getState()
-                    .setSessionStatus(sessionId, 'completed', { word, durationMs })
+                    .setSessionStatus(sessionId, 'completed', { word, durationMs, tokenDelta })
                 } else {
                   useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
                 }
@@ -3264,6 +3352,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           // Start completion badge timer
           messageSendTimes.set(sessionId, Date.now())
           userExplicitSendTimes.set(sessionId, Date.now())
+          snapshotTokenBaseline(sessionId)
           lastSendMode.set(sessionId, 'ask')
           useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
 
@@ -3290,7 +3379,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const prefixedQuestion = prAskContext + ASK_MODE_PREFIX + question
 
           // Add user message to UI immediately (before response)
-          setMessages((prev) => [...prev, createLocalMessage('user', prefixedQuestion)])
+          // Include attachment XML so cards render instantly
+          const askDisplayContent = buildDisplayContent(attachments, prefixedQuestion)
+          setMessages((prev) => [...prev, createLocalMessage('user', askDisplayContent)])
 
           // Mark that a new prompt is in flight
           newPromptPendingRef.current = true
@@ -3341,6 +3432,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           ...prev,
           { id: crypto.randomUUID(), content: trimmedValue, timestamp: Date.now() }
         ])
+        // Persist to the follow-up queue so the idle handler sends it
+        useSessionStore.getState().enqueueFollowUpMessage(sessionId, trimmedValue)
+        // Clear input but do NOT send — the idle handler will send when the agent finishes
+        setInputValue('')
+        inputValueRef.current = ''
+        fileMentions.clearMentions()
+        if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+        window.db.session.updateDraft(sessionId, null)
+        return
       }
       setInputValue('')
       inputValueRef.current = ''
@@ -3356,13 +3456,20 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       // Start the completion badge timer from when the user sends the message
       messageSendTimes.set(sessionId, Date.now())
       userExplicitSendTimes.set(sessionId, Date.now())
+      snapshotTokenBaseline(sessionId)
 
       // Record the mode at send time — used to derive "Plan ready" vs "Ready"
       const currentModeForStatus = useSessionStore.getState().getSessionMode(sessionId)
       lastSendMode.set(sessionId, currentModeForStatus)
       useWorktreeStatusStore
         .getState()
-        .setSessionStatus(sessionId, currentModeForStatus === 'plan' ? 'planning' : 'working')
+        .setSessionStatus(sessionId, isPlanLike(currentModeForStatus) ? 'planning' : 'working')
+
+      // Auto-revert super-plan → plan immediately (one-shot mode).
+      // The captured `currentModeForStatus` preserves the original mode for prefix logic below.
+      if (currentModeForStatus === 'super-plan') {
+        useSessionStore.getState().setSessionMode(sessionId, 'plan')
+      }
 
       try {
         setSessionRetry(null)
@@ -3376,6 +3483,31 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const currentRevertId = revertMessageID
         setRevertMessageID(null)
         revertDiffRef.current = null
+
+        // Build the full display content for the optimistic message so that
+        // attachment cards (tickets, PR comments, files) render immediately
+        // instead of only appearing after a session reload from disk.
+        const optimisticMode = currentModeForStatus
+        const optimisticModePrefix =
+          optimisticMode === 'super-plan' ? SUPER_PLAN_MODE_PREFIX
+          : optimisticMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX
+          : ''
+        const optimisticPrComments = usePRReviewStore.getState().attachedComments
+        let optimisticPrContext = ''
+        if (optimisticPrComments.length > 0) {
+          optimisticPrContext =
+            optimisticPrComments
+              .map(
+                (c) =>
+                  `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
+              )
+              .join('\n\n') + '\n\n'
+        }
+        const optimisticContent = buildDisplayContent(
+          attachments,
+          optimisticPrContext + optimisticModePrefix + trimmedValue
+        )
+
         setMessages((prev) => {
           let base = prev
           if (currentRevertId) {
@@ -3384,7 +3516,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               base = prev.slice(0, boundaryIndex)
             }
           }
-          return [...base, createLocalMessage('user', trimmedValue)]
+          return [...base, createLocalMessage('user', optimisticContent)]
         })
 
         // Mark that a new prompt is in flight — prevents finalizeResponse
@@ -3480,9 +3612,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               }
             } else {
               // Unknown command — send as regular prompt (SDK may handle it)
-              const currentMode = useSessionStore.getState().getSessionMode(sessionId)
               const modePrefix =
-                currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
+                currentModeForStatus === 'super-plan' ? SUPER_PLAN_MODE_PREFIX
+                : currentModeForStatus === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX
+                : ''
               // Build PR review comment context
               const prAttachedComments = usePRReviewStore.getState().attachedComments
               let prContext = ''
@@ -3515,8 +3648,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             }
           } else {
             // Regular prompt — existing code (with mode prefix, attachments, etc.)
-            const currentMode = useSessionStore.getState().getSessionMode(sessionId)
-            const modePrefix = currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
+            const modePrefix =
+              currentModeForStatus === 'super-plan' ? SUPER_PLAN_MODE_PREFIX
+              : currentModeForStatus === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX
+              : ''
             // Build PR review comment context
             const prAttachedComments = usePRReviewStore.getState().attachedComments
             let prContext = ''
@@ -3611,6 +3746,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       await useSessionStore.getState().setSessionMode(sessionId, 'build')
       lastSendMode.set(sessionId, 'build')
+      notifyKanbanSessionSync(sessionId, { type: 'implement' })
       await handleSend(
         sessionRecord?.agent_sdk === 'codex'
           ? 'Implement the plan.'
@@ -3648,6 +3784,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
         await useSessionStore.getState().setSessionMode(sessionId, 'build')
         lastSendMode.set(sessionId, 'build')
+        notifyKanbanSessionSync(sessionId, { type: 'implement' })
 
         // The SDK resumes within the same prompt cycle after plan approval —
         // it won't emit a new session.status:busy event. Set status explicitly.
@@ -3655,6 +3792,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         setIsStreaming(true)
         setIsSending(true)
         userExplicitSendTimes.set(sessionId, Date.now())
+        snapshotTokenBaseline(sessionId)
 
         // Transition the ExitPlanMode tool card to "accepted" state
         updateStreamingPartsRef((parts) =>
@@ -3676,6 +3814,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     // OpenCode sessions: legacy non-blocking behavior.
     await useSessionStore.getState().setSessionMode(sessionId, 'build')
     lastSendMode.set(sessionId, 'build')
+    notifyKanbanSessionSync(sessionId, { type: 'implement' })
     await handleSend('Implement')
   }, [
     sessionId,
@@ -3716,6 +3855,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       if (!worktreePath) return
       userExplicitSendTimes.set(sessionId, Date.now())
+      snapshotTokenBaseline(sessionId)
       const pendingBeforeAction = pendingPlan
       useSessionStore.getState().clearPendingPlan(sessionId)
       useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
@@ -3751,7 +3891,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const currentMode = useSessionStore.getState().getSessionMode(sessionId)
         useWorktreeStatusStore
           .getState()
-          .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+          .setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
       } catch (err) {
         toast.error(`Plan reject error: ${err instanceof Error ? err.message : String(err)}`)
         useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
@@ -3792,6 +3932,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       }
       const setModePromise = sessionStore.setSessionMode(result.session.id, 'build')
       sessionStore.setPendingMessage(result.session.id, handoffPrompt)
+      notifyKanbanSessionSync(sessionId, { type: 'supercharge', newSessionId: result.session.id })
       sessionStore.setActiveConnectionSession(result.session.id)
       await setModePromise
       return
@@ -3815,6 +3956,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
     const setModePromise = sessionStore.setSessionMode(result.session.id, 'build')
     sessionStore.setPendingMessage(result.session.id, handoffPrompt)
+    notifyKanbanSessionSync(sessionId, { type: 'supercharge', newSessionId: result.session.id })
     sessionStore.setActiveSession(result.session.id)
     await setModePromise
   }, [messages, worktreeId, sessionRecord?.project_id, connectionId, sessionId])
@@ -3846,6 +3988,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       sessionStore.setPendingFollowUpMessages(newSessionId, [
         'use the subagent development skill to implement the following plan:\n' + planContent
       ])
+      // Notify kanban store: supercharge re-attaches ticket to new session
+      notifyKanbanSessionSync(sessionId, {
+        type: 'supercharge',
+        newSessionId
+      })
       sessionStore.setActiveConnectionSession(newSessionId)
       await setModePromise
       return
@@ -3898,6 +4045,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       'use the subagent development skill to implement the following plan:\n' + planContent
     ])
 
+    // 5b. Notify kanban store: supercharge re-attaches ticket to new session
+    notifyKanbanSessionSync(sessionId, {
+      type: 'supercharge',
+      newSessionId
+    })
+
     // 6. Navigate to the new worktree
     worktreeStore.selectWorktree(dupResult.worktree.id)
     await setModePromise
@@ -3940,10 +4093,57 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       'use the subagent development skill to implement the following plan:\n' + planContent
     ])
 
+    // 3b. Notify kanban store: supercharge re-attaches ticket to new session
+    notifyKanbanSessionSync(sessionId, {
+      type: 'supercharge',
+      newSessionId
+    })
+
     // 4. Navigate to the new session (same worktree)
     sessionStore.setActiveSession(newSessionId)
     await setModePromise
   }, [messages, worktreeId, sessionRecord?.project_id, pendingPlan, sessionId])
+
+  const handlePlanReadySaveAsTicket = useCallback(async () => {
+    const projectId = sessionRecord?.project_id
+    if (!projectId) {
+      toast.error('No project associated with this session')
+      return
+    }
+
+    const planContent =
+      pendingPlan?.planContent ??
+      [...messages].reverse().find((m) => m.role === 'assistant' && m.content.trim().length > 0)
+        ?.content
+
+    if (!planContent) {
+      toast.error('No plan content found')
+      return
+    }
+
+    // Extract title from first markdown heading, or fall back to first non-empty line
+    const headingMatch = planContent.match(/^#+\s+(.+)$/m)
+    const title = headingMatch
+      ? headingMatch[1].trim()
+      : (planContent
+          .split('\n')
+          .find((line: string) => line.trim().length > 0)
+          ?.trim()
+          .slice(0, 100) ?? 'Plan ticket')
+
+    try {
+      await useKanbanStore.getState().createTicket(projectId, {
+        project_id: projectId,
+        title,
+        description: planContent,
+        column: 'todo'
+      })
+      setPlanSavedAsTicket(true)
+      toast.success('Saved as ticket')
+    } catch {
+      toast.error('Failed to save as ticket')
+    }
+  }, [messages, pendingPlan, sessionRecord?.project_id])
 
   // Abort streaming
   const handleAbort = useCallback(async () => {
@@ -4089,6 +4289,34 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
+  const handleTicketPickerSelect = useCallback(
+    (tickets: TicketAttachmentData[]) => {
+      setAttachments((prev) => {
+        const remaining = MAX_ATTACHMENTS - prev.length
+        if (remaining <= 0) {
+          toast.warning(`Maximum ${MAX_ATTACHMENTS} attachments reached`)
+          return prev
+        }
+        const toAdd = tickets.slice(0, remaining).map((t) => ({
+          kind: 'ticket' as const,
+          id: crypto.randomUUID(),
+          name: t.title,
+          ticketId: t.ticketId,
+          title: t.title,
+          description: t.description,
+          attachments: t.attachments
+        }))
+        if (tickets.length > remaining) {
+          toast.warning(
+            `Only ${remaining} of ${tickets.length} tickets attached (${MAX_ATTACHMENTS} max)`
+          )
+        }
+        return [...prev, ...toAdd]
+      })
+    },
+    []
+  )
+
   // Slash command handlers
   const handleInputChange = useCallback(
     (value: string, newCursorPos?: number) => {
@@ -4193,6 +4421,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Don't intercept Tab inside the ticket creation modal — it needs
+        // natural tab navigation between title / description fields.
+        const createModal = document.querySelector('[data-testid="ticket-create-modal"]')
+        if (createModal?.contains(document.activeElement)) return
+
         e.preventDefault()
         e.stopPropagation()
         toggleSessionMode(sessionId)
@@ -4380,6 +4613,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       ? !!pendingPlan && hasCodexProposedPlan
       : lastSendMode.get(sessionId) === 'plan' && !isSending && !isStreaming && !pendingPlan
 
+  // Reset "saved as ticket" flag when the plan changes (new plan → fresh button)
+  const pendingPlanRef = useRef(pendingPlan)
+  if (pendingPlanRef.current !== pendingPlan) {
+    pendingPlanRef.current = pendingPlan
+    if (planSavedAsTicket) setPlanSavedAsTicket(false)
+  }
+
   const retrySecondsRemaining = useMemo(() => {
     if (!sessionRetry?.next) return null
     return Math.max(0, Math.ceil((sessionRetry.next - retryTickMs) / 1000))
@@ -4399,18 +4639,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   }, [sessionRetry?.next])
 
   const isActive = isStreaming || isSending
-  useEffect(() => {
-    if (!isActive) return
-    setElapsedTickMs(Date.now())
-    const timer = window.setInterval(() => setElapsedTickMs(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [isActive])
-
-  const elapsedTimerText = useMemo(() => {
-    const sendTime = userExplicitSendTimes.get(sessionId)
-    if (!sendTime) return null
-    return formatElapsedTimer(elapsedTickMs - sendTime)
-  }, [sessionId, elapsedTickMs])
+  const elapsedTimerText = useSessionTimer(sessionId, isActive)
 
   // Render based on view state
   if (viewState.status === 'connecting') {
@@ -4450,6 +4679,27 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           onPointerCancel={handleScrollPointerCancel}
           data-testid="message-list"
         >
+          {/* Read-only banner for orphaned sessions */}
+          {isOrphanedSession && (
+            <div
+              className="mx-6 mt-4 mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3"
+              data-testid="readonly-banner"
+            >
+              <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400">
+                <Archive className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">Read-Only Mode</p>
+                  <p className="mt-0.5 text-sm opacity-90">
+                    {sessionRecord?.connection_id
+                      ? 'This session is from a deleted connection. You can view the conversation history but cannot send new messages.'
+                      : sessionRecord?.worktree_id
+                        ? 'This session is from an archived worktree. You can view the conversation history but cannot send new messages.'
+                        : 'This session is no longer accessible. You can view the conversation history but cannot send new messages.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {visibleMessages.length === 0 && !hasStreamingContent ? (
             <div className="flex-1 flex items-center justify-center h-full text-muted-foreground">
               <div className="text-center">
@@ -4608,6 +4858,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           onSuperpowers={handlePlanReadySuperpowers}
           onSuperpowersLocal={handlePlanReadySuperpowersLocal}
           isConnectionSession={!!connectionId}
+          onSaveAsTicket={sessionRecord?.project_id && !planSavedAsTicket ? handlePlanReadySaveAsTicket : undefined}
         />
         {/* Scroll-to-bottom FAB */}
         <ScrollToBottomFab
@@ -4684,6 +4935,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           />
           {/* PR review comment attachments — above the input container */}
           <PrCommentAttachments />
+          {/* Ticket attachments — above the input container */}
+          <TicketAttachments attachments={attachments} onRemove={handleRemoveAttachment} />
           <div
             className={cn(
               'rounded-xl border-2 transition-colors duration-200 overflow-hidden',
@@ -4726,13 +4979,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 isImeComposingRef.current = false
               }}
               onPaste={handlePaste}
-              disabled={!!activePermission}
+              disabled={!!activePermission || isOrphanedSession}
               placeholder={
-                activePermission
-                  ? 'Waiting for permission response...'
-                  : pendingPlan
-                    ? 'Send feedback to revise the plan...'
-                    : 'Type your message...'
+                isOrphanedSession
+                  ? 'Read-only mode - cannot send messages'
+                  : activePermission
+                    ? 'Waiting for permission response...'
+                    : pendingPlan
+                      ? 'Send feedback to revise the plan...'
+                      : 'Type your message...'
               }
               aria-label="Message input"
               aria-haspopup="listbox"
@@ -4760,7 +5015,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                     onAccept={() => updateSetting('codexFastModeAccepted', true)}
                   />
                 )}
-                <AttachmentButton onAttach={handleAttach} />
+                <AttachmentButton
+                  onAttach={handleAttach}
+                  projectId={sessionRecord?.project_id ?? null}
+                  onPickTicket={() => setTicketPickerOpen(true)}
+                  disabled={isOrphanedSession}
+                />
                 <ContextIndicator
                   sessionId={sessionId}
                   modelId={currentModelId}
@@ -4814,7 +5074,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                       }
                       void handleSend()
                     }}
-                    disabled={!inputValue.trim() || !!activePermission}
+                    disabled={!inputValue.trim() || !!activePermission || isOrphanedSession}
                     size="sm"
                     className="h-7 w-7 p-0"
                     aria-label={
@@ -4845,6 +5105,16 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           </div>
         </div>
       </div>
+
+      {/* Ticket picker modal for attaching board tickets */}
+      {sessionRecord?.project_id && (
+        <TicketPickerModal
+          projectId={sessionRecord.project_id}
+          open={ticketPickerOpen}
+          onOpenChange={setTicketPickerOpen}
+          onSelectTickets={handleTicketPickerSelect}
+        />
+      )}
     </div>
   )
 }

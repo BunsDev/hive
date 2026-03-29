@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useSessionStore } from './useSessionStore'
 import { useConnectionStore } from './useConnectionStore'
 import { lastSendMode } from '@/lib/message-send-times'
+import { notifyKanbanSessionSync } from './store-coordination'
 
 export type SessionStatusType =
   | 'working'
@@ -18,6 +19,7 @@ export interface SessionStatusEntry {
   timestamp: number
   word?: string
   durationMs?: number
+  tokenDelta?: number
 }
 
 interface WorktreeStatusState {
@@ -30,7 +32,7 @@ interface WorktreeStatusState {
   setSessionStatus: (
     sessionId: string,
     status: SessionStatusType | null,
-    metadata?: { word?: string; durationMs?: number }
+    metadata?: { word?: string; durationMs?: number; tokenDelta?: number }
   ) => void
   clearSessionStatus: (sessionId: string) => void
   clearWorktreeUnread: (worktreeId: string) => void
@@ -69,7 +71,7 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
   setSessionStatus: (
     sessionId: string,
     status: SessionStatusType | null,
-    metadata?: { word?: string; durationMs?: number }
+    metadata?: { word?: string; durationMs?: number; tokenDelta?: number }
   ) => {
     set((state) => ({
       sessionStatuses: {
@@ -77,6 +79,19 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
         [sessionId]: status ? { status, timestamp: Date.now(), ...metadata } : null
       }
     }))
+
+    // ── Kanban coordination: notify kanban store of relevant status changes ──
+    if (status === 'completed') {
+      const mode = lastSendMode.get(sessionId) as 'build' | 'plan' | undefined
+      notifyKanbanSessionSync(sessionId, {
+        type: 'session_completed',
+        sessionMode: mode
+      })
+    } else if (status === 'plan_ready') {
+      notifyKanbanSessionSync(sessionId, { type: 'plan_ready' })
+    } else if (status === 'working' || status === 'planning') {
+      notifyKanbanSessionSync(sessionId, { type: 'session_working' })
+    }
   },
 
   clearSessionStatus: (sessionId: string) => {

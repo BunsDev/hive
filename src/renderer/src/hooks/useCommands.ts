@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useCallback, useState } from 'react'
+import { useIsWebMode } from '@/hooks/useIsWebMode'
 import {
   useProjectStore,
   useWorktreeStore,
@@ -6,7 +7,8 @@ import {
   useThemeStore,
   useSessionHistoryStore,
   useLayoutStore,
-  useSettingsStore
+  useSettingsStore,
+  useKanbanStore
 } from '@/stores'
 import { THEME_PRESETS } from '@/lib/themes'
 import { useGitStore } from '@/stores/useGitStore'
@@ -21,6 +23,8 @@ import { revealLabel, isWindows, fileManagerName } from '@/lib/platform'
  * based on the current search query and context.
  */
 export function useCommands() {
+  const isWebMode = useIsWebMode()
+
   // Get store state and actions
   const { projects, selectedProjectId, selectProject, toggleProjectExpanded } = useProjectStore()
   const { worktreesByProject, selectWorktree, getWorktreesForProject } = useWorktreeStore()
@@ -36,6 +40,7 @@ export function useCommands() {
   const { togglePanel: toggleSessionHistory } = useSessionHistoryStore()
   const { stageAll, unstageAll, refreshStatuses, push, pull, isPushing, isPulling } = useGitStore()
   const { toggleLeftSidebar, toggleRightSidebar } = useLayoutStore()
+  const { toggleBoardView } = useKanbanStore()
   const { getDisplayString } = useShortcutStore()
   const {
     searchQuery,
@@ -194,6 +199,23 @@ export function useCommands() {
           })
         },
         isVisible: () => activeWorktreeId !== null
+      },
+
+      // =====================
+      // BOARD COMMANDS
+      // =====================
+      {
+        id: 'kanban:toggle',
+        label: 'Open Board',
+        description: 'Toggle the board view',
+        category: 'navigation',
+        icon: 'KanbanIcon',
+        keywords: ['kanban', 'board', 'tickets', 'todo'],
+        action: () => {
+          toggleBoardView()
+          closeCommandPalette()
+        },
+        isVisible: () => selectedProjectId !== null
       },
 
       // =====================
@@ -578,7 +600,7 @@ export function useCommands() {
         category: 'action',
         icon: 'Terminal',
         keywords: ['install', 'server', 'path', 'headless', 'cli', 'terminal'],
-        isVisible: () => isPackaged,
+        isVisible: () => isPackaged && !isWebMode,
         action: async () => {
           try {
             const result = await window.systemOps.installServerToPath()
@@ -602,7 +624,7 @@ export function useCommands() {
         category: 'action',
         icon: 'Trash2',
         keywords: ['uninstall', 'remove', 'server', 'path', 'cli'],
-        isVisible: () => isPackaged,
+        isVisible: () => isPackaged && !isWebMode,
         action: async () => {
           try {
             const result = await window.systemOps.uninstallServerFromPath()
@@ -657,7 +679,9 @@ export function useCommands() {
     getActiveWorktreePath,
     closeCommandPalette,
     pushCommandLevel,
-    isPackaged
+    isPackaged,
+    isWebMode,
+    toggleBoardView
   ])
 
   // Get filtered commands based on search query
