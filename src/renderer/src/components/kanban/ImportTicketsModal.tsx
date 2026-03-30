@@ -269,7 +269,6 @@ export function ImportTicketsModal({
                       >
                         <Checkbox
                           checked={selected.has(issue.externalId)}
-                          onCheckedChange={() => toggleSelect(issue.externalId)}
                           className="mt-0.5"
                         />
                         <div className="flex-1 min-w-0">
