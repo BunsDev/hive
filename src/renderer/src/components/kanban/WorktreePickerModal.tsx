@@ -84,6 +84,7 @@ export function WorktreePickerModal({
   preAssignOnly = false
 }: WorktreePickerModalProps) {
   const [mode, setMode] = useState<PickerMode>('build')
+  const [superArmed, setSuperArmed] = useState(false)
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null)
   const [isNewWorktree, setIsNewWorktree] = useState(false)
   const [promptText, setPromptText] = useState('')
@@ -231,11 +232,29 @@ export function WorktreePickerModal({
   // ── Handle mode toggle ──────────────────────────────────────────
   const toggleMode = useCallback(() => {
     setMode((prev) => {
-      const next = prev === 'build' ? 'plan' : 'build'
+      let next: PickerMode
+      if (prev === 'build') {
+        next = superArmed ? 'super-plan' : 'plan'
+      } else {
+        next = 'build'
+      }
       setPromptText(buildPrompt(next, ticket))
       return next
     })
-  }, [ticket])
+  }, [ticket, superArmed])
+
+  // ── Handle SUPER toggle ─────────────────────────────────────────
+  const toggleSuper = useCallback(() => {
+    if (mode === 'plan') {
+      setMode('super-plan')
+      setSuperArmed(true)
+      setPromptText(buildPrompt('super-plan', ticket))
+    } else if (mode === 'super-plan') {
+      setMode('plan')
+      setSuperArmed(false)
+      setPromptText(buildPrompt('plan', ticket))
+    }
+  }, [mode, ticket])
 
   // ── Handle Tab key: toggle mode + focus prompt textarea ────────
   // Must use window-level capture-phase listener to beat SessionView's
@@ -491,7 +510,7 @@ export function WorktreePickerModal({
             <span className="font-medium text-foreground">{ticket.title}</span>
           </DialogDescription>
           {/* Build/Plan chip toggle — below description to avoid overlapping the X close button */}
-          {!preAssignOnly && <div>
+          {!preAssignOnly && <div className="flex items-center gap-1.5">
             <button
               data-testid="wt-picker-mode-toggle"
               data-mode={mode}
@@ -512,6 +531,31 @@ export function WorktreePickerModal({
               <ModeIcon className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{modeLabel}</span>
             </button>
+            <div
+              className={cn(
+                'transition-all duration-200 overflow-hidden',
+                mode === 'plan' || mode === 'super-plan'
+                  ? 'opacity-100 translate-x-0 max-w-[80px]'
+                  : 'opacity-0 -translate-x-2 max-w-0 pointer-events-none'
+              )}
+            >
+              <button
+                type="button"
+                onClick={toggleSuper}
+                aria-pressed={mode === 'super-plan'}
+                aria-label={`Super mode ${mode === 'super-plan' ? 'enabled' : 'disabled'}`}
+                data-testid="wt-picker-super-toggle"
+                className={cn(
+                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+                  'border select-none whitespace-nowrap',
+                  mode === 'super-plan'
+                    ? 'bg-orange-500/10 border-orange-500/30 text-orange-500 hover:bg-orange-500/20'
+                    : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                SUPER
+              </button>
+            </div>
           </div>}
         </DialogHeader>
 
