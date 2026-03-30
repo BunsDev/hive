@@ -30,6 +30,7 @@ export interface StreamingPart {
   }
   reasoning?: string
   compactionAuto?: boolean
+  compactionStatus?: 'in-progress' | 'completed'
 }
 
 export interface OpenCodeMessage {

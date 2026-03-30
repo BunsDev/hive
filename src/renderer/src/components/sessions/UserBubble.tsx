@@ -11,6 +11,31 @@ interface UserBubbleProps {
   isAskMode?: boolean
 }
 
+/**
+ * Strip command XML tags that the SDK adds when echoing back commands.
+ * Extracts the actual command text from tags like <command-name>, <command-message>
+ * and removes wrapper tags like <local-command-caveat>
+ */
+function stripCommandTags(content: string): string {
+  // Extract command name (e.g., /compact)
+  const commandNameMatch = content.match(/<command-name>(.*?)<\/command-name>/s)
+  if (commandNameMatch) {
+    // If we found command tags, extract the command text and args
+    const commandName = commandNameMatch[1].trim()
+    const argsMatch = content.match(/<command-args>(.*?)<\/command-args>/s)
+    const args = argsMatch ? argsMatch[1].trim() : ''
+
+    // Return just the command with args (if any)
+    return args ? `${commandName} ${args}` : commandName
+  }
+
+  // No command tags found - return content with other XML tags removed
+  return content
+    .replace(/<local-command-caveat>.*?<\/local-command-caveat>/gs, '')
+    .replace(/<local-command-stdout>.*?<\/local-command-stdout>/gs, '')
+    .trim()
+}
+
 export const UserBubble = memo(function UserBubble({ content, isPlanMode, isSuperPlanMode, isAskMode }: UserBubbleProps): React.JSX.Element {
   const { tickets, prComments, files, dataAttachments, cleanText } = useMemo(
     () => parseUserMessageAttachments(content),
@@ -18,6 +43,7 @@ export const UserBubble = memo(function UserBubble({ content, isPlanMode, isSupe
   )
 
   const hasAttachments = tickets.length > 0 || prComments.length > 0 || files.length > 0 || dataAttachments.length > 0
+  const displayContent = stripCommandTags(cleanText)
 
   return (
     <div className="flex flex-col items-end px-6 py-4" data-testid="message-user">
@@ -62,7 +88,7 @@ export const UserBubble = memo(function UserBubble({ content, isPlanMode, isSupe
             ASK
           </span>
         )}
-        <p className="text-sm whitespace-pre-wrap leading-relaxed">{cleanText}</p>
+        <p className="text-sm whitespace-pre-wrap leading-relaxed">{displayContent}</p>
       </div>
     </div>
   )

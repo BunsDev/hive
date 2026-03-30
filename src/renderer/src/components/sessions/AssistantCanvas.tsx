@@ -113,7 +113,11 @@ function renderParts(
 
     if (part.type === 'compaction') {
       renderedParts.push(
-        <CompactionPill key={`compaction-${index}`} auto={part.compactionAuto ?? false} />
+        <CompactionPill
+          key={`compaction-${index}`}
+          auto={part.compactionAuto ?? false}
+          status={part.compactionStatus ?? 'completed'}
+        />
       )
       index += 1
       continue

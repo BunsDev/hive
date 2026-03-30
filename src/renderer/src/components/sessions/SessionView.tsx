@@ -125,6 +125,10 @@ export const BUILT_IN_SLASH_COMMANDS: SlashCommandInfo[] = [
   }
 ]
 
+// Module-level storage for compaction state per session (persists across component remounts)
+const sessionCompactionParts = new Map<string, StreamingPart[]>()
+const sessionCompactionInjected = new Map<string, boolean>()
+
 // Types for OpenCode SDK integration
 export interface OpenCodeMessage {
   id: string
@@ -169,6 +173,8 @@ export interface StreamingPart {
   reasoning?: string
   /** Whether compaction was automatic */
   compactionAuto?: boolean
+  /** Compaction status (in-progress or completed) */
+  compactionStatus?: 'in-progress' | 'completed'
 }
 
 function derivePendingCodexPlan(
@@ -1324,6 +1330,58 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
       }
 
+      // Inject preserved compaction parts from streaming (SDK transcript doesn't include system messages)
+      const preservedCompactionParts = sessionCompactionParts.get(sessionId) || []
+      const alreadyInjected = sessionCompactionInjected.get(sessionId) || false
+
+      if (preservedCompactionParts.length > 0 && !alreadyInjected) {
+        // Check if SDK transcript already has a compaction message (shouldn't happen, but be safe)
+        const hasCompactionMessage = loadedMessages.some(
+          (m) =>
+            m.role === 'assistant' &&
+            m.parts?.some((p) => p.type === 'compaction' && p.compactionStatus === 'completed')
+        )
+
+        if (!hasCompactionMessage) {
+          // Find the last user message (compact command) and inject after it
+          const lastUserIdx = loadedMessages.findLastIndex((m) => m.role === 'user')
+          if (lastUserIdx !== -1) {
+            // Create a new assistant message with just the compaction part
+            // Use timestamp to ensure unique ID in case of multiple compactions
+            const compactionId = `compaction-${sessionId}-${Date.now()}`
+            loadedMessages.splice(lastUserIdx + 1, 0, {
+              id: compactionId,
+              role: 'assistant',
+              content: '',
+              parts: [...preservedCompactionParts],
+              timestamp: new Date().toISOString()
+            })
+            // Mark as injected to prevent duplicates on subsequent loads
+            sessionCompactionInjected.set(sessionId, true)
+          }
+        }
+      }
+
+      // Detect and inject compaction UI for manual /compact commands (historical sessions)
+      // System messages with "Compacted" text should display a compaction pill
+      for (const msg of loadedMessages) {
+        if (msg.role === 'system' && /\bcompacted\b/i.test(msg.content)) {
+          // Check if compaction part already exists
+          const hasCompactionPart = msg.parts?.some((p) => p.type === 'compaction')
+          if (!hasCompactionPart) {
+            // Inject compaction part (manual command, not auto)
+            msg.parts = [
+              ...(msg.parts || []),
+              {
+                type: 'compaction' as const,
+                compactionAuto: false,
+                compactionStatus: 'completed' as const // Already completed when loaded
+              }
+            ]
+          }
+        }
+      }
+
       // If there's a pending plan, override ExitPlanMode tool status to 'pending'
       // so the tool card shows as awaiting approval (transcript reports 'completed').
       let pendingPlanForLoad = useSessionStore.getState().getPendingPlan(sessionId)
@@ -1402,6 +1460,19 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       }
       const streamedContentSnapshot = streamingContentRef.current
 
+      // Preserve compaction parts before reload (they won't be in SDK transcript)
+      // Ensure status is 'completed' since we're finalizing
+      const compactionParts = streamedPartsSnapshot
+        .filter((p) => p.type === 'compaction')
+        .map((p) => ({ ...p, compactionStatus: 'completed' as const }))
+
+      // Store in module-level Map for later injection (persists across component remounts)
+      if (compactionParts.length > 0) {
+        sessionCompactionParts.set(sessionId, compactionParts)
+        // Clear injected flag so the new compaction can be injected
+        sessionCompactionInjected.delete(sessionId)
+      }
+
       console.debug('[TOOL_DEBUG] finalizeResponse START', {
         streamingPartsCount: streamingPartsRef.current.length,
         toolParts: streamingPartsRef.current
@@ -1469,6 +1540,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             })
           )
         }
+
+        // Preserved compaction parts will be injected by the useEffect below
+        // after messages are fully loaded (system message needs to exist first)
       } catch (error) {
         console.error('Failed to refresh messages after stream completion:', error)
         toast.error('Failed to refresh response')
@@ -2193,7 +2267,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             } else if (part.type === 'compaction') {
               updateStreamingPartsRef((parts) => [
                 ...parts,
-                { type: 'compaction' as const, compactionAuto: part.auto === true }
+                {
+                  type: 'compaction' as const,
+                  compactionAuto: part.auto === true,
+                  compactionStatus: 'in-progress' as const
+                }
               ])
               // Reset stale token snapshot — compaction truncates the context window.
               // The next assistant message.updated will carry accurate post-compaction tokens.
@@ -2287,6 +2365,19 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               hasFinalizedCurrentResponseRef.current = true
               void finalizeResponse()
             }
+          } else if (event.type === 'session.context_compacted') {
+            // Codex compaction notification - add compaction part to show UI
+            updateStreamingPartsRef((parts) => [
+              ...parts,
+              {
+                type: 'compaction' as const,
+                compactionAuto: true, // Codex compaction is always automatic
+                compactionStatus: 'in-progress' as const
+              }
+            ])
+            // Clear token snapshot (same as global listener does)
+            useContextStore.getState().clearSessionTokenSnapshot(sessionId)
+            immediateFlush()
           } else if (event.type === 'session.status') {
             const status = event.statusPayload || event.data?.status
             if (!status) return
@@ -2909,6 +3000,72 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       }
     }
   }, [sessionId])
+
+  // Auto-transition compaction from in-progress to completed
+  // Track which compaction parts have active timers to avoid resetting the countdown
+  const compactionTimersRef = useRef<Set<number>>(new Set())
+
+  useEffect(() => {
+    const pendingIdx = streamingParts.findIndex(
+      (p) => p.type === 'compaction' && p.compactionStatus === 'in-progress'
+    )
+
+    if (pendingIdx !== -1 && !compactionTimersRef.current.has(pendingIdx)) {
+      compactionTimersRef.current.add(pendingIdx)
+
+      const timer = setTimeout(() => {
+        compactionTimersRef.current.delete(pendingIdx)
+        updateStreamingPartsRef((parts) =>
+          parts.map((p, i) =>
+            i === pendingIdx && p.type === 'compaction'
+              ? { ...p, compactionStatus: 'completed' as const }
+              : p
+          )
+        )
+        immediateFlush()
+      }, 1000) // 1 second delay
+
+      return () => {
+        clearTimeout(timer)
+        compactionTimersRef.current.delete(pendingIdx)
+      }
+    }
+  }, [streamingParts, updateStreamingPartsRef, immediateFlush])
+
+  // Inject preserved compaction parts into system messages after they're loaded
+  // (Fallback mechanism - primary injection happens during transcript load)
+  useEffect(() => {
+    const preservedCompactionParts = sessionCompactionParts.get(sessionId) || []
+    if (preservedCompactionParts.length === 0) return
+
+    // Check if we already have a compaction part anywhere to avoid duplicates
+    const hasCompaction = messages.some(
+      (m) => m.parts?.some((p) => p.type === 'compaction' && p.compactionStatus === 'completed')
+    )
+
+    if (hasCompaction) return
+
+    // Look for system message with "compacted" text that doesn't have compaction parts yet
+    const systemMsgIndex = messages.findLastIndex(
+      (m) => m.role === 'system' && /\bcompacted\b/i.test(m.content)
+    )
+
+    if (systemMsgIndex !== -1) {
+      const systemMsg = messages[systemMsgIndex]
+      const hasCompactionInMsg = systemMsg.parts?.some((p) => p.type === 'compaction')
+
+      if (!hasCompactionInMsg) {
+        setMessages((current) => {
+          const updated = [...current]
+          updated[systemMsgIndex] = {
+            ...updated[systemMsgIndex],
+            parts: [...(updated[systemMsgIndex].parts || []), ...preservedCompactionParts]
+          }
+          return updated
+        })
+      }
+    }
+  }, [messages, sessionId])
 
   // Handle retry connection
   const handleRetry = useCallback(async () => {

@@ -2504,6 +2504,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
                   tool.inputJson += partialJson
                 }
               }
+            } else if (deltaType === 'compaction_delta') {
+              // Compaction summary arrives as a single delta (not incrementally)
+              // The content_block_start already triggered the UI.
+              // The renderer will auto-transition after 1 second.
             }
             break
           }
@@ -2554,6 +2558,19 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
               // Start of a thinking/reasoning block — the actual content
               // arrives via content_block_delta thinking_delta events.
               // Nothing to emit here; the first delta creates the part.
+            } else if (blockType === 'compaction') {
+              // Start of compaction - emit immediately so UI can show in-progress state
+              this.sendToRenderer('opencode:stream', {
+                type: 'message.part.updated',
+                sessionId: hiveSessionId,
+                childSessionId,
+                data: {
+                  part: {
+                    type: 'compaction',
+                    auto: true // Streaming compaction is always automatic
+                  }
+                }
+              })
             }
             break
           }
