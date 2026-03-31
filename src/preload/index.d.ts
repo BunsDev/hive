@@ -1324,20 +1324,21 @@ declare global {
       listIssues: (
         providerId: string,
         repo: string,
-        options: { page: number; perPage: number; state: 'open' | 'closed' | 'all'; search?: string },
+        options: { page: number; perPage: number; state: 'open' | 'closed' | 'all'; search?: string; nextPageToken?: string },
         settings: Record<string, string>
       ) => Promise<{
         issues: Array<{
           externalId: string
           title: string
           body: string | null
-          state: 'open' | 'closed'
+          state: 'open' | 'closed' | 'in_progress'
           url: string
           createdAt: string
           updatedAt: string
         }>
         hasNextPage: boolean
         totalCount: number
+        nextPageToken?: string
       }>
       importIssues: (
         providerId: string,
