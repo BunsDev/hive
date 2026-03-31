@@ -1,4 +1,4 @@
-import { useMemo, useCallback, memo } from 'react'
+import { useMemo, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import { MessageRenderer } from './MessageRenderer'
@@ -41,7 +41,6 @@ export interface VirtualizedMessageListProps {
   completionEntry: { word?: string; durationMs?: number } | null
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   messagesEndRef: React.RefObject<HTMLDivElement | null>
-  isAutoScrollEnabledRef: React.MutableRefObject<boolean>
 }
 
 // ---------------------------------------------------------------------------
@@ -67,8 +66,7 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
   queuedMessages,
   completionEntry,
   scrollContainerRef,
-  messagesEndRef,
-  isAutoScrollEnabledRef: _isAutoScrollEnabledRef
+  messagesEndRef
 }: VirtualizedMessageListProps): React.JSX.Element {
   // Build the flat item array that drives the virtualizer
   const items = useMemo(() => {
@@ -128,33 +126,15 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
     completionEntry
   ])
 
-  const estimateSize = useCallback(
-    (index: number) => {
-      const item = items[index]
-      if (item.type === 'message') {
-        const contentLen = item.message.content?.length ?? 0
-        if (contentLen < 100) return 80
-        if (contentLen < 500) return 200
-        return 400
-      }
-      if (item.type === 'streaming') return 200
-      if (item.type === 'typing-indicator') return 60
-      if (item.type === 'completion') return 40
-      return 80 // banners, queued messages
-    },
-    [items]
-  )
-
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize,
+    estimateSize: () => 150,
     overscan: 5
   })
 
   // Render a single virtual item
-  const renderItem = useCallback(
-    (item: VirtualItem) => {
+  const renderItem = (item: VirtualItem) => {
       switch (item.type) {
         case 'message':
           return (
@@ -280,21 +260,7 @@ export const VirtualizedMessageList = memo(function VirtualizedMessageList({
         default:
           return null
       }
-    },
-    [
-      cwd,
-      onForkAssistantMessage,
-      forkingMessageId,
-      revertedUserCount,
-      onRedoRevert,
-      sessionErrorMessage,
-      sessionErrorStderr,
-      sessionRetry,
-      retrySecondsRemaining,
-      isStreaming,
-      completionEntry
-    ]
-  )
+  }
 
   return (
     <div className="py-4">

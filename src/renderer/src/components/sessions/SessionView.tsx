@@ -4544,6 +4544,23 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // Determine if there's streaming content to show
   const hasStreamingContent = streamingParts.length > 0 || streamingContent.length > 0
 
+  const streamingMessage = useMemo(() => {
+    if (!hasStreamingContent) return null
+    return {
+      id: 'streaming' as const,
+      role: 'assistant' as const,
+      content: streamingContent,
+      timestamp: new Date().toISOString(),
+      parts: streamingParts
+    }
+  }, [hasStreamingContent, streamingContent, streamingParts])
+
+  const handleRedoRevert = useCallback(() => {
+    setInputValue('/redo')
+    inputValueRef.current = '/redo'
+    textareaRef.current?.focus()
+  }, [])
+
   // The StreamingCursor (blinking cursor) only renders after text or tool_use parts.
   // Parts like reasoning, step_start, step_finish, compaction don't show it.
   // When those are the only parts, we still need the 3-dot loading indicator.
@@ -4705,13 +4722,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           ) : (
             <VirtualizedMessageList
               messages={visibleMessages}
-              streamingMessage={hasStreamingContent ? {
-                id: 'streaming',
-                role: 'assistant',
-                content: streamingContent,
-                timestamp: new Date().toISOString(),
-                parts: streamingParts
-              } : null}
+              streamingMessage={streamingMessage}
               isStreaming={isStreaming}
               isSending={isSending}
               cwd={worktreePath}
@@ -4719,11 +4730,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               forkingMessageId={forkingMessageId}
               revertMessageID={revertMessageID}
               revertedUserCount={revertedUserCount}
-              onRedoRevert={() => {
-                setInputValue('/redo')
-                inputValueRef.current = '/redo'
-                textareaRef.current?.focus()
-              }}
+              onRedoRevert={handleRedoRevert}
               sessionErrorMessage={sessionErrorMessage}
               sessionErrorStderr={sessionErrorStderr}
               sessionRetry={sessionRetry}
@@ -4733,7 +4740,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               completionEntry={completionEntry}
               scrollContainerRef={scrollContainerRef}
               messagesEndRef={messagesEndRef}
-              isAutoScrollEnabledRef={isAutoScrollEnabledRef}
             />
           )}
         </div>
