@@ -1623,7 +1623,15 @@ export class DatabaseService {
 
     const id = randomUUID()
     const column = data.column ?? 'todo'
-    const sortOrder = data.sort_order ?? 0
+    let sortOrder: number
+    if (data.sort_order != null) {
+      sortOrder = data.sort_order
+    } else {
+      const maxRow = db.prepare(
+        'SELECT MAX(sort_order) as max_sort FROM kanban_tickets WHERE project_id = ? AND "column" = ? AND archived_at IS NULL'
+      ).get(data.project_id, column) as { max_sort: number | null } | undefined
+      sortOrder = (maxRow?.max_sort ?? -1) + 1
+    }
     const description = data.description ?? null
     const attachmentsJson = data.attachments ? JSON.stringify(data.attachments) : '[]'
     const currentSessionId = data.current_session_id ?? null
