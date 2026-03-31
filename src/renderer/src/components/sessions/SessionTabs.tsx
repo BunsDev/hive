@@ -1,5 +1,6 @@
 import {
   Fragment,
+  memo,
   useEffect,
   useRef,
   useState,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react'
 import { KanbanIcon } from '@/components/kanban/KanbanIcon'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useShallow } from 'zustand/react/shallow'
 import {
   useFileViewerStore,
   type FileViewerTab,
@@ -84,7 +86,7 @@ interface SessionTabProps {
   hintCode?: string
 }
 
-function SessionTab({
+const SessionTab = memo(function SessionTab({
   sessionId,
   name,
   isActive,
@@ -264,7 +266,7 @@ function SessionTab({
       </ContextMenuContent>
     </ContextMenu>
   )
-}
+})
 
 interface FileTabProps {
   filePath: string
@@ -452,7 +454,7 @@ interface ConnectionSessionTabProps {
   connectionName: string
 }
 
-function ConnectionSessionTab({
+const ConnectionSessionTab = memo(function ConnectionSessionTab({
   sessionId,
   name,
   isActive,
@@ -511,7 +513,7 @@ function ConnectionSessionTab({
       <span className="truncate flex-1">{name || 'Untitled'}</span>
     </div>
   )
-}
+})
 
 export function SessionTabs(): React.JSX.Element | null {
   const tabsContainerRef = useRef<HTMLDivElement>(null)
@@ -523,34 +525,41 @@ export function SessionTabs(): React.JSX.Element | null {
   const [showImport, setShowImport] = useState(false)
   const [showJiraImport, setShowJiraImport] = useState(false)
 
-  const {
-    activeWorktreeId,
-    activeSessionId,
-    sessionsByWorktree,
-    tabOrderByWorktree,
-    sessionsByConnection,
-    tabOrderByConnection,
-    orphanedSessions,
-    loadSessions,
-    createSession,
-    closeSession,
-    setActiveSession,
-    reorderTabs,
-    updateSessionName,
-    closeOtherSessions,
-    closeSessionsToRight,
-    loadConnectionSessions,
-    createConnectionSession,
-    setActiveConnectionSession,
-    reorderConnectionTabs,
-    closeOtherConnectionSessions,
-    closeConnectionSessionsToRight,
-    inlineConnectionSessionId,
-    setInlineConnectionSession,
-    clearInlineConnectionSession,
-    loadConnectionSessionsBackground,
-    closeOrphanedSessions
-  } = useSessionStore()
+  // Individual selectors for state values
+  const activeWorktreeId = useSessionStore((s) => s.activeWorktreeId)
+  const activeSessionId = useSessionStore((s) => s.activeSessionId)
+  const inlineConnectionSessionId = useSessionStore((s) => s.inlineConnectionSessionId)
+
+  // useShallow for Map/Set-valued state (avoids reference-change re-renders when grouping)
+  const { sessionsByWorktree, tabOrderByWorktree, sessionsByConnection, tabOrderByConnection, orphanedSessions } = useSessionStore(
+    useShallow((s) => ({
+      sessionsByWorktree: s.sessionsByWorktree,
+      tabOrderByWorktree: s.tabOrderByWorktree,
+      sessionsByConnection: s.sessionsByConnection,
+      tabOrderByConnection: s.tabOrderByConnection,
+      orphanedSessions: s.orphanedSessions
+    }))
+  )
+
+  // Individual selectors for functions (stable by default in zustand, but still avoids full-store subscription)
+  const loadSessions = useSessionStore((s) => s.loadSessions)
+  const createSession = useSessionStore((s) => s.createSession)
+  const closeSession = useSessionStore((s) => s.closeSession)
+  const setActiveSession = useSessionStore((s) => s.setActiveSession)
+  const reorderTabs = useSessionStore((s) => s.reorderTabs)
+  const updateSessionName = useSessionStore((s) => s.updateSessionName)
+  const closeOtherSessions = useSessionStore((s) => s.closeOtherSessions)
+  const closeSessionsToRight = useSessionStore((s) => s.closeSessionsToRight)
+  const loadConnectionSessions = useSessionStore((s) => s.loadConnectionSessions)
+  const createConnectionSession = useSessionStore((s) => s.createConnectionSession)
+  const setActiveConnectionSession = useSessionStore((s) => s.setActiveConnectionSession)
+  const reorderConnectionTabs = useSessionStore((s) => s.reorderConnectionTabs)
+  const closeOtherConnectionSessions = useSessionStore((s) => s.closeOtherConnectionSessions)
+  const closeConnectionSessionsToRight = useSessionStore((s) => s.closeConnectionSessionsToRight)
+  const setInlineConnectionSession = useSessionStore((s) => s.setInlineConnectionSession)
+  const clearInlineConnectionSession = useSessionStore((s) => s.clearInlineConnectionSession)
+  const loadConnectionSessionsBackground = useSessionStore((s) => s.loadConnectionSessionsBackground)
+  const closeOrphanedSessions = useSessionStore((s) => s.closeOrphanedSessions)
 
   const {
     openFiles,
