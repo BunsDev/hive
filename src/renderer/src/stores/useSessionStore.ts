@@ -899,6 +899,40 @@ export const useSessionStore = create<SessionState>()(
         return null
       },
 
+      // Hydrate a session from the DB into the in-memory store.
+      // Called when findSessionById discovers a session via DB fallback so
+      // that getWorktreeStatus() and zustand selectors can find it going forward.
+      // Does NOT modify tabOrder, activeSessionId, or loading state.
+      hydrateSession: (session: Session) => {
+        // Already in store? Skip.
+        if (get().getSessionById(session.id)) return
+
+        set((state) => {
+          if (session.worktree_id) {
+            const newMap = new Map(state.sessionsByWorktree)
+            const existing = newMap.get(session.worktree_id) || []
+            if (existing.some((s) => s.id === session.id)) return state
+            newMap.set(session.worktree_id, [...existing, session])
+
+            const newModeMap = new Map(state.modeBySession)
+            newModeMap.set(session.id, session.mode || 'build')
+
+            return { sessionsByWorktree: newMap, modeBySession: newModeMap }
+          } else if (session.connection_id) {
+            const newMap = new Map(state.sessionsByConnection)
+            const existing = newMap.get(session.connection_id) || []
+            if (existing.some((s) => s.id === session.id)) return state
+            newMap.set(session.connection_id, [...existing, session])
+
+            const newModeMap = new Map(state.modeBySession)
+            newModeMap.set(session.id, session.mode || 'build')
+
+            return { sessionsByConnection: newMap, modeBySession: newModeMap }
+          }
+          return state
+        })
+      },
+
       // Toggle session mode between build and plan/super-plan (2-way cycle)
       // From 'build': go to 'super-plan' if superArmed, else 'plan'
       // From 'plan' or 'super-plan': go to 'build'

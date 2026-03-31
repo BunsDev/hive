@@ -104,7 +104,11 @@ async function findSessionById(sessionId: string): Promise<{
   for (const sessions of sessionStore.sessionsByWorktree.values()) {
     const found = sessions.find((s) => s.id === sessionId)
     if (found) {
-      const worktreePath = found.worktree_id ? findWorktreePathById(found.worktree_id) : null
+      let worktreePath = found.worktree_id ? findWorktreePathById(found.worktree_id) : null
+      // Worktree not in the in-memory store (project not loaded in sidebar) — try DB
+      if (!worktreePath && found.worktree_id) {
+        worktreePath = (await window.db.worktree.get(found.worktree_id))?.path ?? null
+      }
       return { session: found, worktreePath, connectionId: null, workingPath: worktreePath }
     }
   }
@@ -121,6 +125,10 @@ async function findSessionById(sessionId: string): Promise<{
     console.warn(`[KanbanTicketModal] findSessionById: session not found in store or DB — sessionId=${sessionId}`)
     return null
   }
+  // Hydrate into the in-memory store so getWorktreeStatus() and
+  // zustand selectors can find this session going forward.
+  useSessionStore.getState().hydrateSession(dbSession)
+
   const worktreePath = dbSession.worktree_id
     ? (await window.db.worktree.get(dbSession.worktree_id))?.path ?? null
     : null
@@ -128,7 +136,7 @@ async function findSessionById(sessionId: string): Promise<{
     session: {
       id: dbSession.id,
       worktree_id: dbSession.worktree_id,
-      connection_id: null,
+      connection_id: dbSession.connection_id,
       opencode_session_id: dbSession.opencode_session_id,
       agent_sdk: dbSession.agent_sdk,
       model_provider_id: dbSession.model_provider_id,
@@ -136,7 +144,7 @@ async function findSessionById(sessionId: string): Promise<{
       model_variant: dbSession.model_variant
     },
     worktreePath,
-    connectionId: null,
+    connectionId: dbSession.connection_id,
     workingPath: worktreePath
   }
 }
@@ -241,7 +249,7 @@ async function sendFollowupToSession(opts: {
   // SessionView does this on mount via initializeSession(), but the kanban
   // followup path bypasses SessionView entirely.  Without this, the Claude Code
   // implementer throws "session not found" because its Map was never populated.
-  await window.opencodeOps.reconnect(worktreePath, session.opencode_session_id, opts.sessionId)
+  await window.opencodeOps.reconnect(workingPath, session.opencode_session_id, opts.sessionId)
 
   const promptResult = await window.opencodeOps.prompt(workingPath, session.opencode_session_id, [
     { type: 'text', text: fullPrompt }
@@ -325,6 +333,10 @@ function KanbanTicketModalContent({
           const found = sessions.find((s) => s.id === ticket.current_session_id)
           if (found) return found.status
         }
+        for (const sessions of state.sessionsByConnection.values()) {
+          const found = sessions.find((s) => s.id === ticket.current_session_id)
+          if (found) return found.status
+        }
         return null
       },
       [ticket.current_session_id]
@@ -339,11 +351,75 @@ function KanbanTicketModalContent({
           const found = sessions.find((s) => s.id === ticket.current_session_id)
           if (found) return found
         }
+        for (const sessions of state.sessionsByConnection.values()) {
+          const found = sessions.find((s) => s.id === ticket.current_session_id)
+          if (found) return found
+        }
         return null
       },
       [ticket.current_session_id]
     )
   )
+
+  // ── DB session fallback ──────────────────────────────────────────
+  // When zustand selectors return null (session not in sessionsByWorktree
+  // or sessionsByConnection), fall back to the DB via findSessionById —
+  // the same 3-tier lookup that sendFollowupToSession already uses.
+  const [dbSessionInfo, setDbSessionInfo] = useState<{
+    session: {
+      id: string; worktree_id: string | null; connection_id: string | null;
+      opencode_session_id: string | null; agent_sdk: string;
+      model_provider_id: string | null; model_id: string | null; model_variant: string | null;
+    }
+    worktreePath: string | null
+  } | null>(null)
+
+  // Tracks when findSessionById definitively returns null (session not
+  // in store or DB).  Used to fall back to the standard (no-session)
+  // layout instead of showing a perpetual spinner.
+  const [sessionLoadFailed, setSessionLoadFailed] = useState(false)
+
+  // Guards against a race where loadSessions (which replaces
+  // sessionsByWorktree entirely with active-only sessions) would wipe
+  // out a session that hydrateSession just added from the DB fallback.
+  const isLoadingDbSession = useRef(false)
+
+  useEffect(() => {
+    if (!ticket.current_session_id) {
+      setDbSessionInfo(null)
+      setSessionLoadFailed(false)
+      isLoadingDbSession.current = false
+      return
+    }
+    if (sessionRecord) {
+      // Session found in zustand — don't clear dbSessionInfo because its
+      // worktreePath is still needed as a fallback until dbWorktreePath
+      // loads from its own async effect.
+      // Only clear if it belongs to a different session (ticket switched).
+      if (dbSessionInfo && dbSessionInfo.session.id !== ticket.current_session_id) {
+        setDbSessionInfo(null)
+      }
+      setSessionLoadFailed(false)
+      isLoadingDbSession.current = false
+      return
+    }
+    let cancelled = false
+    // Set synchronously so the hasAttemptedSessionLoad effect (which
+    // fires in the same micro-task batch) sees it before calling loadSessions.
+    isLoadingDbSession.current = true
+    setSessionLoadFailed(false)
+    findSessionById(ticket.current_session_id).then((result) => {
+      if (cancelled) return
+      if (!result) {
+        setSessionLoadFailed(true)
+        return
+      }
+      setDbSessionInfo({ session: result.session, worktreePath: result.workingPath })
+    }).finally(() => {
+      if (!cancelled) isLoadingDbSession.current = false
+    })
+    return () => { cancelled = true; isLoadingDbSession.current = false }
+  }, [ticket.current_session_id, sessionRecord])
 
   // Eagerly load sessions when a ticket has a session but it's not in the
   // in-memory store (e.g. the worktree isn't currently selected).  Guard
@@ -351,15 +427,19 @@ function KanbanTicketModalContent({
   // when the session genuinely doesn't exist in the loaded worktree.
   const hasAttemptedSessionLoad = useRef(false)
   useEffect(() => {
-    if (!ticket.current_session_id || sessionRecord) {
+    if (!ticket.current_session_id || sessionRecord || dbSessionInfo) {
       hasAttemptedSessionLoad.current = false
       return
     }
     if (!ticket.worktree_id || !ticket.project_id) return
     if (hasAttemptedSessionLoad.current) return
+    // Don't call loadSessions while the DB fallback lookup is in-flight —
+    // loadSessions replaces sessionsByWorktree entirely with active-only
+    // sessions, which would wipe out the session hydrateSession adds.
+    if (isLoadingDbSession.current) return
     hasAttemptedSessionLoad.current = true
     useSessionStore.getState().loadSessions(ticket.worktree_id, ticket.project_id)
-  }, [ticket.current_session_id, ticket.worktree_id, ticket.project_id, sessionRecord])
+  }, [ticket.current_session_id, ticket.worktree_id, ticket.project_id, sessionRecord, dbSessionInfo])
 
   const pendingPlan = useSessionStore(
     useCallback(
@@ -382,6 +462,22 @@ function KanbanTicketModalContent({
     )
   )
 
+  const [dbWorktreePath, setDbWorktreePath] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!sessionRecord?.worktree_id) { setDbWorktreePath(null); return }
+
+    const inMemory = findWorktreePathById(sessionRecord.worktree_id)
+    if (inMemory) { setDbWorktreePath(null); return }
+
+    // Worktree not in store — load from DB
+    window.db.worktree.get(sessionRecord.worktree_id).then((wt) => {
+      setDbWorktreePath(wt?.path ?? null)
+    })
+  }, [sessionRecord?.worktree_id])
+
+  const effectiveSession = sessionRecord ?? dbSessionInfo?.session ?? null
+
   const baseModalMode = resolveModalMode(ticket, sessionStatus)
   // Question mode takes highest priority — an unanswered question blocks
   // the agent regardless of other ticket state (error, plan_ready, etc.)
@@ -389,13 +485,98 @@ function KanbanTicketModalContent({
 
   // ── Session stream resolution ────────────────────────────────────
   let worktreePath: string | null = null
-  if (sessionRecord?.worktree_id) {
-    worktreePath = findWorktreePathById(sessionRecord.worktree_id)
-  } else if (sessionRecord?.connection_id) {
-    worktreePath = useConnectionStore.getState().connections.find(c => c.id === sessionRecord.connection_id)?.path ?? null
+  if (effectiveSession?.worktree_id) {
+    worktreePath = findWorktreePathById(effectiveSession.worktree_id) ?? dbWorktreePath ?? dbSessionInfo?.worktreePath ?? null
+  } else if (effectiveSession?.connection_id) {
+    worktreePath = useConnectionStore.getState().connections.find(
+      c => c.id === effectiveSession.connection_id
+    )?.path ?? dbSessionInfo?.worktreePath ?? null
+  } else if (dbSessionInfo?.worktreePath) {
+    worktreePath = dbSessionInfo.worktreePath
   }
-  const opcSessionId: string | null = sessionRecord?.opencode_session_id ?? null
-  const hasSession = !!(ticket.current_session_id && worktreePath && opcSessionId)
+  const storeOpcSessionId: string | null = effectiveSession?.opencode_session_id ?? null
+
+  // If the Zustand store still has a placeholder `pending::` ID, the real
+  // materialized ID may already be in the DB (the backend updates it during
+  // the first prompt).  Re-read from the DB to resolve it.
+  const [resolvedOpcSessionId, setResolvedOpcSessionId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!storeOpcSessionId || !storeOpcSessionId.startsWith('pending::') || !ticket.current_session_id) {
+      setResolvedOpcSessionId(null)
+      return
+    }
+    let cancelled = false
+    window.db.session.get(ticket.current_session_id).then((dbSess: { opencode_session_id?: string | null } | null) => {
+      if (cancelled) return
+      const dbId = dbSess?.opencode_session_id ?? null
+      if (dbId && !dbId.startsWith('pending::')) {
+        console.info('[KanbanModal] resolved pending:: ID from DB — store=%s, db=%s', storeOpcSessionId, dbId)
+        // Also update the Zustand store so other components pick it up
+        useSessionStore.getState().setOpenCodeSessionId(ticket.current_session_id!, dbId)
+        setResolvedOpcSessionId(dbId)
+      }
+    })
+    return () => { cancelled = true }
+  }, [storeOpcSessionId, ticket.current_session_id])
+
+  const opcSessionId = resolvedOpcSessionId ?? storeOpcSessionId
+  const hasSession = !!(ticket.current_session_id && worktreePath && opcSessionId && !opcSessionId.startsWith('pending::'))
+
+  // Commit to dual-pane layout as soon as we know the ticket has a session,
+  // even before the async DB lookups resolve.  This prevents the user from
+  // seeing a narrow "empty" modal while session data loads.
+  // Falls back to standard layout only when the DB lookup definitively fails.
+  const wantsDualPane = !!ticket.current_session_id && !sessionLoadFailed
+
+  const [sessionReady, setSessionReady] = useState(false)
+
+  console.info('[KanbanModal] session resolution — ticket.current_session_id=%s, worktreePath=%s, opcSessionId=%s (store=%s), hasSession=%s, sessionReady=%s, agent_sdk=%s, sessionLoadFailed=%s', ticket.current_session_id, worktreePath, opcSessionId, storeOpcSessionId, hasSession, sessionReady, effectiveSession?.agent_sdk, sessionLoadFailed)
+
+  useEffect(() => {
+    if (!worktreePath || !opcSessionId || !ticket.current_session_id) {
+      setSessionReady(false)
+      return
+    }
+
+    let cancelled = false
+    setSessionReady(false)
+
+    // Mirror SessionView's init flow: reconnect → getMessages in one async
+    // sequence.  The getMessages() call pre-warms the backend's in-memory
+    // message cache (for Claude Code sessions this triggers readClaudeTranscript
+    // from disk; for OpenCode sessions it pokes the server).  Without this,
+    // SessionStreamPanel's useSessionStream hook may call getMessages() before
+    // the cache is warm and receive an empty result.
+    console.info('[KanbanModal:sessionReady] starting — worktreePath=%s, opcSessionId=%s, hiveSessionId=%s', worktreePath, opcSessionId, ticket.current_session_id)
+    ;(async () => {
+      try {
+        const reconnResult = await window.opencodeOps.reconnect(worktreePath, opcSessionId, ticket.current_session_id)
+        console.info('[KanbanModal:sessionReady] reconnect result:', reconnResult)
+      } catch (err) {
+        console.warn('[KanbanModal:sessionReady] reconnect failed:', err)
+        // reconnect failure is non-fatal — still try to show messages
+      }
+
+      // Pre-warm: load messages into the backend cache so the next
+      // getMessages() call from useSessionStream finds them immediately.
+      try {
+        const warmResult = await window.opencodeOps.getMessages(worktreePath, opcSessionId)
+        console.info('[KanbanModal:sessionReady] pre-warm getMessages — success=%s, messageCount=%d', warmResult.success, Array.isArray(warmResult.messages) ? warmResult.messages.length : 0)
+      } catch (err) {
+        console.warn('[KanbanModal:sessionReady] pre-warm getMessages failed:', err)
+        // Pre-warm failure is non-fatal
+      }
+
+      if (!cancelled) {
+        console.info('[KanbanModal:sessionReady] setting sessionReady=true')
+        setSessionReady(true)
+      } else {
+        console.info('[KanbanModal:sessionReady] cancelled, not setting sessionReady')
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [worktreePath, opcSessionId, ticket.current_session_id])
 
   // Render the mode-specific inner content (without DialogContent wrapper)
   let modeContent: React.ReactNode
@@ -416,9 +597,9 @@ function KanbanTicketModalContent({
           ticket={ticket}
           onClose={onClose}
           pendingPlan={pendingPlan}
-          sessionRecord={sessionRecord}
+          sessionRecord={effectiveSession}
           updateTicket={updateTicket}
-          dualPane={hasSession}
+          dualPane={wantsDualPane}
         />
       )
       break
@@ -429,12 +610,12 @@ function KanbanTicketModalContent({
           onClose={onClose}
           moveTicket={moveTicket}
           updateTicket={updateTicket}
-          dualPane={hasSession}
+          dualPane={wantsDualPane}
         />
       )
       break
     case 'error':
-      modeContent = <ErrorModeContent ticket={ticket} onClose={onClose} dualPane={hasSession} />
+      modeContent = <ErrorModeContent ticket={ticket} onClose={onClose} dualPane={wantsDualPane} />
       break
     case 'question':
       modeContent = (
@@ -442,14 +623,14 @@ function KanbanTicketModalContent({
           ticket={ticket}
           onClose={onClose}
           activeQuestion={activeQuestion!}
-          dualPane={hasSession}
+          dualPane={wantsDualPane}
         />
       )
       break
   }
 
   // ── Full-width session layout (only in-progress edit mode — left pane has no actionable content) ──
-  if (hasSession && modalMode === 'edit' && ticket.column === 'in_progress') {
+  if (wantsDualPane && modalMode === 'edit' && ticket.column === 'in_progress') {
     return (
       <DialogContent
         data-testid="kanban-ticket-modal"
@@ -459,20 +640,26 @@ function KanbanTicketModalContent({
           <DialogTitle>{ticket.title}</DialogTitle>
         </DialogHeader>
         <div className="flex h-full overflow-hidden">
-          <SessionStreamPanel
-            sessionId={ticket.current_session_id!}
-            worktreePath={worktreePath!}
-            opencodeSessionId={opcSessionId!}
-            title={ticket.title}
-            fullWidth
-          />
+          {hasSession && sessionReady ? (
+            <SessionStreamPanel
+              sessionId={ticket.current_session_id!}
+              worktreePath={worktreePath!}
+              opencodeSessionId={opcSessionId!}
+              title={ticket.title}
+              fullWidth
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-current border-t-transparent" />
+            </div>
+          )}
         </div>
       </DialogContent>
     )
   }
 
   // ── Dual-pane layout (ticket + session stream) ──────────────────
-  if (hasSession) {
+  if (wantsDualPane) {
     return (
       <DialogContent
         data-testid="kanban-ticket-modal"
@@ -496,12 +683,18 @@ function KanbanTicketModalContent({
             )}
             {modeContent}
           </div>
-          {/* Right: session stream */}
-          <SessionStreamPanel
-            sessionId={ticket.current_session_id!}
-            worktreePath={worktreePath!}
-            opencodeSessionId={opcSessionId!}
-          />
+          {/* Right: session stream (or loading spinner while DB lookup resolves) */}
+          {hasSession && sessionReady ? (
+            <SessionStreamPanel
+              sessionId={ticket.current_session_id!}
+              worktreePath={worktreePath!}
+              opencodeSessionId={opcSessionId!}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-current border-t-transparent" />
+            </div>
+          )}
         </div>
       </DialogContent>
     )
@@ -841,9 +1034,8 @@ function PlanReviewModeContent({
   onClose: () => void
   pendingPlan: { requestId: string; planContent: string; toolUseID: string } | null
   sessionRecord: {
-    id: string
     worktree_id: string | null
-    project_id: string
+    connection_id: string | null
     agent_sdk: string
   } | null
   updateTicket: (ticketId: string, projectId: string, data: KanbanTicketUpdate) => Promise<void>
@@ -1266,50 +1458,54 @@ function PlanReviewModeContent({
         </div>
       </div>
 
-      <DialogFooter className="flex-shrink-0 gap-1.5 flex-wrap">
-        <Button
-          type="button"
-          data-testid="plan-review-handoff-btn"
-          disabled={isActioning || !ticket.worktree_id}
-          onClick={handleHandoff}
-          className="gap-1.5"
-          variant="outline"
-        >
-          <ArrowRight className="h-3.5 w-3.5" />
-          Handoff
-        </Button>
-        <Button
-          type="button"
-          data-testid="plan-review-supercharge-local-btn"
-          disabled={isActioning || !ticket.worktree_id}
-          onClick={handleSuperchargeLocal}
-          className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
-        >
-          <Bolt className="h-3.5 w-3.5" />
-          Supercharge
-        </Button>
-        <Button
-          type="button"
-          data-testid="plan-review-supercharge-btn"
-          disabled={isActioning || !ticket.worktree_id}
-          onClick={handleSupercharge}
-          className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
-          variant="outline"
-        >
-          <Zap className="h-3.5 w-3.5" />
-          Supercharge (new branch)
-        </Button>
-        <Button
-          type="button"
-          data-testid="plan-review-implement-btn"
-          disabled={isActioning}
-          onClick={handleImplement}
-          className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          <Hammer className="h-3.5 w-3.5" />
-          Implement
-        </Button>
-      </DialogFooter>
+      {/* Action buttons only visible when ExitPlanMode is awaiting approval
+          (matches SessionView's showPlanReadyImplementFab gating on !!pendingPlan) */}
+      {!!pendingPlan && (
+        <DialogFooter className="flex-shrink-0 gap-1.5 flex-wrap">
+          <Button
+            type="button"
+            data-testid="plan-review-handoff-btn"
+            disabled={isActioning || !ticket.worktree_id}
+            onClick={handleHandoff}
+            className="gap-1.5"
+            variant="outline"
+          >
+            <ArrowRight className="h-3.5 w-3.5" />
+            Handoff
+          </Button>
+          <Button
+            type="button"
+            data-testid="plan-review-supercharge-local-btn"
+            disabled={isActioning || !ticket.worktree_id}
+            onClick={handleSuperchargeLocal}
+            className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+          >
+            <Bolt className="h-3.5 w-3.5" />
+            Supercharge
+          </Button>
+          <Button
+            type="button"
+            data-testid="plan-review-supercharge-btn"
+            disabled={isActioning || !ticket.worktree_id}
+            onClick={handleSupercharge}
+            className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+            variant="outline"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Supercharge (new branch)
+          </Button>
+          <Button
+            type="button"
+            data-testid="plan-review-implement-btn"
+            disabled={isActioning}
+            onClick={handleImplement}
+            className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Hammer className="h-3.5 w-3.5" />
+            Implement
+          </Button>
+        </DialogFooter>
+      )}
     </>
   )
 }
