@@ -1,5 +1,6 @@
 import {
   Fragment,
+  memo,
   useEffect,
   useRef,
   useState,
@@ -74,7 +75,7 @@ interface SessionTabProps {
   hintCode?: string
 }
 
-function SessionTab({
+const SessionTab = memo(function SessionTab({
   sessionId,
   name,
   isActive,
@@ -254,7 +255,7 @@ function SessionTab({
       </ContextMenuContent>
     </ContextMenu>
   )
-}
+})
 
 interface FileTabProps {
   filePath: string
@@ -442,7 +443,7 @@ interface ConnectionSessionTabProps {
   connectionName: string
 }
 
-function ConnectionSessionTab({
+const ConnectionSessionTab = memo(function ConnectionSessionTab({
   sessionId,
   name,
   isActive,
@@ -501,7 +502,7 @@ function ConnectionSessionTab({
       <span className="truncate flex-1">{name || 'Untitled'}</span>
     </div>
   )
-}
+})
 
 export function SessionTabs(): React.JSX.Element | null {
   const tabsContainerRef = useRef<HTMLDivElement>(null)
