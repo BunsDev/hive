@@ -1323,6 +1323,7 @@ declare global {
         ) => Promise<KanbanTicket | null>
         reorder: (id: string, sortOrder: number) => Promise<void>
         getBySession: (sessionId: string) => Promise<KanbanTicket[]>
+        addTokens: (id: string, tokens: number) => Promise<KanbanTicket | null>
       }
       simpleMode: {
         toggle: (projectId: string, enabled: boolean) => Promise<void>
