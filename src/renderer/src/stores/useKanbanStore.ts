@@ -90,6 +90,12 @@ interface KanbanState {
   draggingTicketId: string | null
   /** Per-project archive visibility toggle — NOT persisted to localStorage */
   showArchivedByProject: Record<string, boolean>
+  /** Pending "move to done" data — set when a feature-branch ticket is dropped on Done, triggering the merge dialog */
+  pendingDoneMove: {
+    ticketId: string
+    projectId: string
+    sortOrder: number
+  } | null
 
   // ── Actions ────────────────────────────────────────────────────────
   setSelectedTicketId: (id: string | null) => void
@@ -110,6 +116,9 @@ interface KanbanState {
   archiveAllDone: (projectId: string) => Promise<number>
   unarchiveTicket: (ticketId: string, projectId: string) => Promise<void>
   setShowArchived: (projectId: string, show: boolean) => void
+  setPendingDoneMove: (data: { ticketId: string; projectId: string; sortOrder: number }) => void
+  clearPendingDoneMove: () => void
+  completeDoneMove: () => Promise<void>
 
   // ── Session coordination ────────────────────────────────────────────
   syncTicketWithSession: (sessionId: string, event: KanbanSessionEvent) => void
@@ -140,6 +149,7 @@ export const useKanbanStore = create<KanbanState>()(
       isDragging: false,
       draggingTicketId: null,
       showArchivedByProject: {} as Record<string, boolean>,
+      pendingDoneMove: null,
 
       // ── setSelectedTicketId ────────────────────────────────────────
       setSelectedTicketId: (id: string | null) => {
@@ -510,6 +520,22 @@ export const useKanbanStore = create<KanbanState>()(
             }
           }
         }
+      },
+
+      // ── Merge-on-done state ──────────────────────────────────────────
+      setPendingDoneMove: (data) => {
+        set({ pendingDoneMove: data })
+      },
+
+      clearPendingDoneMove: () => {
+        set({ pendingDoneMove: null })
+      },
+
+      completeDoneMove: async () => {
+        const pending = get().pendingDoneMove
+        if (!pending) return
+        set({ pendingDoneMove: null })
+        await get().moveTicket(pending.ticketId, pending.projectId, 'done', pending.sortOrder)
       },
 
       // ── getTicketsForProject ─────────────────────────────────────
