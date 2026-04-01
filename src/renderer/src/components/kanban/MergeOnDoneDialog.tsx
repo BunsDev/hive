@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import { Loader2, GitMerge, GitCommit, Archive } from 'lucide-react'
 
-type Step = 'loading' | 'commit' | 'merge' | 'archive'
+type Step = 'loading' | 'commit_base' | 'commit' | 'merge' | 'archive'
 
 interface BranchStats {
   filesChanged: number
@@ -25,6 +25,8 @@ interface ResolvedState {
   ticketTitle: string
   projectPath: string
   uncommittedStats: { filesChanged: number; insertions: number; deletions: number }
+  baseUncommittedStats: { filesChanged: number; insertions: number; deletions: number }
+  baseDirty: boolean
   branchStats: BranchStats
 }
 
@@ -35,6 +37,8 @@ export function MergeOnDoneDialog() {
   const [step, setStep] = useState<Step>('loading')
   const [resolved, setResolved] = useState<ResolvedState | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
+  const [baseCommitMessage, setBaseCommitMessage] = useState('')
+  const [committingBase, setCommittingBase] = useState(false)
   const [committing, setCommitting] = useState(false)
   const [merging, setMerging] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -89,34 +93,40 @@ export function MergeOnDoneDialog() {
           return
         }
 
-        // Check base worktree for dirty state
-        const baseDirty = await window.gitOps.hasUncommittedChanges(baseWorktree.path)
-        if (baseDirty) {
-          toast.warning(`Cannot merge — commit or stash changes on ${resolvedBaseBranch} first`)
-          await completeDoneMove()
-          return
-        }
-
-        if (cancelled) return
-
-        // Check feature worktree state
-        const [hasUncommitted, branchStatResult] = await Promise.all([
+        // Check both worktrees for dirty state in parallel
+        const [baseDirty, hasUncommitted, branchStatResult] = await Promise.all([
+          window.gitOps.hasUncommittedChanges(baseWorktree.path),
           window.gitOps.hasUncommittedChanges(featureWorktree.path),
           window.gitOps.branchDiffShortStat(featureWorktree.path, resolvedBaseBranch)
         ])
 
         if (cancelled) return
 
-        // Get uncommitted diff stats if needed
+        // Get uncommitted diff stats for both worktrees if needed
+        const [featureDiffResult, baseDiffResult] = await Promise.all([
+          hasUncommitted
+            ? window.gitOps.getDiffStat(featureWorktree.path)
+            : Promise.resolve(null),
+          baseDirty
+            ? window.gitOps.getDiffStat(baseWorktree.path)
+            : Promise.resolve(null)
+        ])
+
         let uncommittedStats = { filesChanged: 0, insertions: 0, deletions: 0 }
-        if (hasUncommitted) {
-          const diffStatResult = await window.gitOps.getDiffStat(featureWorktree.path)
-          if (diffStatResult.success && diffStatResult.files) {
-            uncommittedStats = {
-              filesChanged: diffStatResult.files.length,
-              insertions: diffStatResult.files.reduce((sum, f) => sum + f.additions, 0),
-              deletions: diffStatResult.files.reduce((sum, f) => sum + f.deletions, 0)
-            }
+        if (featureDiffResult?.success && featureDiffResult.files) {
+          uncommittedStats = {
+            filesChanged: featureDiffResult.files.length,
+            insertions: featureDiffResult.files.reduce((sum, f) => sum + f.additions, 0),
+            deletions: featureDiffResult.files.reduce((sum, f) => sum + f.deletions, 0)
+          }
+        }
+
+        let baseUncommittedStats = { filesChanged: 0, insertions: 0, deletions: 0 }
+        if (baseDiffResult?.success && baseDiffResult.files) {
+          baseUncommittedStats = {
+            filesChanged: baseDiffResult.files.length,
+            insertions: baseDiffResult.files.reduce((sum, f) => sum + f.additions, 0),
+            deletions: baseDiffResult.files.reduce((sum, f) => sum + f.deletions, 0)
           }
         }
 
@@ -150,10 +160,13 @@ export function MergeOnDoneDialog() {
           ticketTitle: ticket.title,
           projectPath: project?.path ?? baseWorktree.path,
           uncommittedStats,
+          baseUncommittedStats,
+          baseDirty,
           branchStats
         })
         setCommitMessage(ticket.title)
-        setStep(hasUncommitted ? 'commit' : 'merge')
+        setBaseCommitMessage('')
+        setStep(baseDirty ? 'commit_base' : hasUncommitted ? 'commit' : 'merge')
       } catch (err) {
         if (!cancelled) {
           toast.error(`Failed to check branch: ${err instanceof Error ? err.message : String(err)}`)
@@ -221,16 +234,77 @@ export function MergeOnDoneDialog() {
     }
   }, [resolved, commitMessage, completeDoneMove])
 
+  const handleCommitBase = useCallback(async () => {
+    if (!resolved || !baseCommitMessage.trim()) return
+    setCommittingBase(true)
+    try {
+      const stageResult = await window.gitOps.stageAll(resolved.baseWorktreePath)
+      if (!stageResult.success) {
+        toast.error(`Failed to stage on ${resolved.baseBranch}: ${stageResult.error}`)
+        return
+      }
+
+      const commitResult = await window.gitOps.commit(
+        resolved.baseWorktreePath,
+        baseCommitMessage.trim()
+      )
+      if (!commitResult.success) {
+        toast.error(`Failed to commit on ${resolved.baseBranch}: ${commitResult.error}`)
+        return
+      }
+
+      toast.success(`Changes committed on ${resolved.baseBranch}`)
+
+      // Check if feature branch still has uncommitted changes
+      const featureHasUncommitted = await window.gitOps.hasUncommittedChanges(
+        resolved.featureWorktreePath
+      )
+
+      if (featureHasUncommitted) {
+        setStep('commit')
+      } else {
+        // Re-check branch divergence
+        const statResult = await window.gitOps.branchDiffShortStat(
+          resolved.featureWorktreePath,
+          resolved.baseBranch
+        )
+        if (statResult.success && statResult.commitsAhead > 0) {
+          setResolved((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  branchStats: {
+                    filesChanged: statResult.filesChanged,
+                    insertions: statResult.insertions,
+                    deletions: statResult.deletions,
+                    commitsAhead: statResult.commitsAhead
+                  }
+                }
+              : prev
+          )
+          setStep('merge')
+        } else {
+          await completeDoneMove()
+        }
+      }
+    } catch (err) {
+      toast.error(`Commit failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setCommittingBase(false)
+    }
+  }, [resolved, baseCommitMessage, completeDoneMove])
+
   const handleMerge = useCallback(async () => {
     if (!resolved) return
     setMerging(true)
     try {
-      // Pull latest on base branch first
-      const pullResult = await window.gitOps.pull(resolved.baseWorktreePath)
-      if (!pullResult.success) {
-        toast.warning(`Pull failed on ${resolved.baseBranch} — merge skipped`)
-        await completeDoneMove()
-        return
+      // Pull latest on base branch first (only if remote exists)
+      const remoteResult = await window.gitOps.getRemoteUrl(resolved.baseWorktreePath)
+      if (remoteResult.url) {
+        const pullResult = await window.gitOps.pull(resolved.baseWorktreePath)
+        if (!pullResult.success) {
+          toast.warning(`Pull failed on ${resolved.baseBranch} — continuing with local merge`)
+        }
       }
 
       // Merge feature into base
@@ -289,6 +363,7 @@ export function MergeOnDoneDialog() {
 
   const stepTitle: Record<Step, string> = {
     loading: 'Moving to Done...',
+    commit_base: 'Uncommitted changes on base',
     commit: 'Uncommitted changes',
     merge: 'Merge branch',
     archive: 'Archive worktree'
@@ -296,6 +371,7 @@ export function MergeOnDoneDialog() {
 
   const stepIcon: Record<Step, React.ReactNode> = {
     loading: <Loader2 className="h-4 w-4 animate-spin" />,
+    commit_base: <GitCommit className="h-4 w-4" />,
     commit: <GitCommit className="h-4 w-4" />,
     merge: <GitMerge className="h-4 w-4" />,
     archive: <Archive className="h-4 w-4" />
@@ -320,6 +396,43 @@ export function MergeOnDoneDialog() {
           <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             Checking branch status...
+          </div>
+        )}
+
+        {step === 'commit_base' && resolved && (
+          <div className="flex flex-col gap-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              <code className="bg-muted px-1 rounded">{resolved.baseBranch}</code> has uncommitted
+              changes:{' '}
+              {resolved.baseUncommittedStats.filesChanged} files changed,{' '}
+              <span className="text-green-500">+{resolved.baseUncommittedStats.insertions}</span>{' '}
+              <span className="text-red-500">-{resolved.baseUncommittedStats.deletions}</span>
+            </p>
+            <Input
+              value={baseCommitMessage}
+              onChange={(e) => setBaseCommitMessage(e.target.value)}
+              placeholder="Commit message for base branch"
+            />
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => completeDoneMove()}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Skip, just move to Done
+              </button>
+              <Button
+                size="sm"
+                onClick={handleCommitBase}
+                disabled={!baseCommitMessage.trim() || committingBase}
+              >
+                {committingBase ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <GitCommit className="h-3 w-3 mr-1" />
+                )}
+                Commit
+              </Button>
+            </div>
           </div>
         )}
 
