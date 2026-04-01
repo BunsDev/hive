@@ -19,24 +19,22 @@ interface PinnedState {
   removeConnection: (id: string) => void
   isWorktreePinned: (id: string) => boolean
   isConnectionPinned: (id: string) => boolean
-  getPinnedProjectIds: () => string[]
 }
 
 /**
- * Derive the set of project IDs that have at least one pinned worktree,
- * by looking up each pinned worktree ID in the worktree store.
+ * Find the project_id for a given worktree ID by scanning worktrees already
+ * loaded in the worktree store. Returns undefined when the project's worktrees
+ * haven't been loaded yet (safe to ignore — an unloaded worktree can't be in
+ * any pinned list).
  */
-function _derivePinnedProjectIds(pinnedWorktreeIds: Set<string>): Set<string> {
-  const projectIds = new Set<string>()
+function findProjectIdForWorktree(worktreeId: string): string | undefined {
   const worktreesByProject = useWorktreeStore.getState().worktreesByProject
   for (const worktrees of worktreesByProject.values()) {
     for (const wt of worktrees) {
-      if (pinnedWorktreeIds.has(wt.id)) {
-        projectIds.add(wt.project_id)
-      }
+      if (wt.id === worktreeId) return wt.project_id
     }
   }
-  return projectIds
+  return undefined
 }
 
 export const usePinnedStore = create<PinnedState>()((set, get) => ({
@@ -85,10 +83,13 @@ export const usePinnedStore = create<PinnedState>()((set, get) => ({
   pinWorktree: async (id: string) => {
     const result = await window.db.worktree.setPinned(id, true)
     if (result.success) {
+      const projectId = findProjectIdForWorktree(id)
       set((state) => {
-        const next = new Set(state.pinnedWorktreeIds)
-        next.add(id)
-        return { pinnedWorktreeIds: next, pinnedProjectIds: _derivePinnedProjectIds(next) }
+        const nextWorktreeIds = new Set(state.pinnedWorktreeIds)
+        nextWorktreeIds.add(id)
+        const nextProjectIds = new Set(state.pinnedProjectIds)
+        if (projectId) nextProjectIds.add(projectId)
+        return { pinnedWorktreeIds: nextWorktreeIds, pinnedProjectIds: nextProjectIds }
       })
     } else {
       toast.error(result.error || 'Failed to pin worktree')
@@ -98,10 +99,18 @@ export const usePinnedStore = create<PinnedState>()((set, get) => ({
   unpinWorktree: async (id: string) => {
     const result = await window.db.worktree.setPinned(id, false)
     if (result.success) {
+      const projectId = findProjectIdForWorktree(id)
       set((state) => {
-        const next = new Set(state.pinnedWorktreeIds)
-        next.delete(id)
-        return { pinnedWorktreeIds: next, pinnedProjectIds: _derivePinnedProjectIds(next) }
+        const nextWorktreeIds = new Set(state.pinnedWorktreeIds)
+        nextWorktreeIds.delete(id)
+        const nextProjectIds = new Set(state.pinnedProjectIds)
+        if (projectId) {
+          const projectStillPinned = [...nextWorktreeIds].some(
+            (wid) => findProjectIdForWorktree(wid) === projectId
+          )
+          if (!projectStillPinned) nextProjectIds.delete(projectId)
+        }
+        return { pinnedWorktreeIds: nextWorktreeIds, pinnedProjectIds: nextProjectIds }
       })
     } else {
       toast.error(result.error || 'Failed to unpin worktree')
@@ -135,11 +144,19 @@ export const usePinnedStore = create<PinnedState>()((set, get) => ({
   },
 
   removeWorktree: (id: string) => {
+    const projectId = findProjectIdForWorktree(id)
     set((state) => {
       if (!state.pinnedWorktreeIds.has(id)) return state
-      const next = new Set(state.pinnedWorktreeIds)
-      next.delete(id)
-      return { pinnedWorktreeIds: next, pinnedProjectIds: _derivePinnedProjectIds(next) }
+      const nextWorktreeIds = new Set(state.pinnedWorktreeIds)
+      nextWorktreeIds.delete(id)
+      const nextProjectIds = new Set(state.pinnedProjectIds)
+      if (projectId) {
+        const projectStillPinned = [...nextWorktreeIds].some(
+          (wid) => findProjectIdForWorktree(wid) === projectId
+        )
+        if (!projectStillPinned) nextProjectIds.delete(projectId)
+      }
+      return { pinnedWorktreeIds: nextWorktreeIds, pinnedProjectIds: nextProjectIds }
     })
   },
 
@@ -158,9 +175,5 @@ export const usePinnedStore = create<PinnedState>()((set, get) => ({
 
   isConnectionPinned: (id: string) => {
     return get().pinnedConnectionIds.has(id)
-  },
-
-  getPinnedProjectIds: () => {
-    return [...get().pinnedProjectIds]
   }
 }))
