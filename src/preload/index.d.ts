@@ -1050,6 +1050,25 @@ declare global {
         error?: string
         conflicts?: string[]
       }>
+      // Abort an in-progress merge
+      mergeAbort: (worktreePath: string) => Promise<{
+        success: boolean
+        error?: string
+      }>
+      // Check if a worktree has uncommitted changes
+      hasUncommittedChanges: (worktreePath: string) => Promise<boolean>
+      // Get branch divergence stats vs base branch
+      branchDiffShortStat: (
+        worktreePath: string,
+        baseBranch: string
+      ) => Promise<{
+        success: boolean
+        filesChanged: number
+        insertions: number
+        deletions: number
+        commitsAhead: number
+        error?: string
+      }>
       // Get raw file content from disk
       getFileContent: (
         worktreePath: string,
