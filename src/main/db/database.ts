@@ -133,7 +133,8 @@ export class DatabaseService {
       archived_at: (row.archived_at as string) ?? null,
       external_provider: (row.external_provider as string) ?? null,
       external_id: (row.external_id as string) ?? null,
-      external_url: (row.external_url as string) ?? null
+      external_url: (row.external_url as string) ?? null,
+      total_tokens: (row.total_tokens as number) ?? 0
     }
   }
 
@@ -1682,6 +1683,7 @@ export class DatabaseService {
       external_provider: externalProvider,
       external_id: externalId,
       external_url: externalUrl,
+      total_tokens: 0,
       created_at: now,
       updated_at: now
     })
@@ -1827,6 +1829,14 @@ export class DatabaseService {
       now,
       id
     )
+  }
+
+  addTicketTokens(ticketId: string, tokens: number): void {
+    const db = this.getDb()
+    const now = new Date().toISOString()
+    db.prepare(
+      'UPDATE kanban_tickets SET total_tokens = total_tokens + ?, updated_at = ? WHERE id = ?'
+    ).run(tokens, now, ticketId)
   }
 
   getKanbanTicketsBySession(sessionId: string): KanbanTicket[] {

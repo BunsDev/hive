@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 17
+export const CURRENT_SCHEMA_VERSION = 18
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -400,6 +400,12 @@ export const MIGRATIONS: Migration[] = [
     version: 17,
     name: 'add_worktree_base_branch',
     up: `ALTER TABLE worktrees ADD COLUMN base_branch TEXT DEFAULT NULL`,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 18,
+    name: 'add_ticket_total_tokens',
+    up: `ALTER TABLE kanban_tickets ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
   }
 ]

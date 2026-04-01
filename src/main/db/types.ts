@@ -352,6 +352,7 @@ export interface KanbanTicket {
   external_provider: string | null
   external_id: string | null
   external_url: string | null
+  total_tokens: number
 }
 
 export interface KanbanTicketCreate {
