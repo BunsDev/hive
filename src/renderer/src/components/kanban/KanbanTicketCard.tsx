@@ -526,6 +526,11 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
                       </span>
                     )}
                     <IndeterminateProgressBar mode={ticket.mode} isAsking={isAsking} className="w-20" />
+                    {isAsking && (
+                      <span className="text-[11px] font-semibold text-amber-500">
+                        Question
+                      </span>
+                    )}
                   </span>
                 )}
               </div>
