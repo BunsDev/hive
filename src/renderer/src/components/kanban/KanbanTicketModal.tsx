@@ -18,7 +18,13 @@ import {
   AlertCircle,
   Bolt,
   Play,
-  Square
+  Square,
+  FileSearch,
+  GitPullRequest,
+  GitMerge,
+  Archive,
+  Loader2,
+  Github
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -54,6 +60,7 @@ import { useQuestionStore, type QuestionRequest } from '@/stores/useQuestionStor
 import { QuestionPrompt } from '@/components/sessions/QuestionPrompt'
 import { SessionStreamPanel } from './SessionStreamPanel'
 import { ProviderIcon, getProviderLabel } from '@/components/ui/provider-icon'
+import { useLifecycleActions } from '@/hooks/useLifecycleActions'
 import type { KanbanTicket, KanbanTicketUpdate } from '../../../../main/db/types'
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -740,6 +747,7 @@ function EditModeContent({
   const [showAttachInput, setShowAttachInput] = useState(false)
   const [attachUrl, setAttachUrl] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const lifecycle = useLifecycleActions(ticket.worktree_id)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const detectedAttachment = attachUrl.trim() ? parseAttachmentUrl(attachUrl.trim()) : null
@@ -996,6 +1004,62 @@ function EditModeContent({
           )}
         </div>
         <div className="flex gap-2">
+          {ticket.column === 'done' && ticket.worktree_id && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              onClick={async () => {
+                const sessionId = await lifecycle.createCodeReview()
+                if (sessionId) {
+                  const sessionStore = useSessionStore.getState()
+                  await sessionStore.pinSessionToBoard(sessionId)
+                  sessionStore.setActivePinnedSession(sessionId)
+                  onClose()
+                }
+              }}
+            >
+              <FileSearch className="h-3.5 w-3.5" />
+              Review
+            </Button>
+          )}
+          {ticket.column === 'done' && ticket.worktree_id && lifecycle.isGitHub &&
+            lifecycle.hasAttachedPR && lifecycle.prLiveState?.state !== 'MERGED' &&
+            lifecycle.prLiveState?.state !== 'CLOSED' && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5 bg-emerald-600/10 border-emerald-500/30 text-emerald-500 hover:bg-emerald-600/20"
+              onClick={() => lifecycle.mergePR()}
+              disabled={lifecycle.isMergingPR}
+            >
+              {lifecycle.isMergingPR ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <GitMerge className="h-3.5 w-3.5" />
+              )}
+              {lifecycle.isMergingPR ? 'Merging...' : 'Merge PR'}
+            </Button>
+          )}
+          {ticket.column === 'done' && ticket.worktree_id && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5 border-red-500/30 text-red-500 hover:bg-red-500/10"
+              onClick={async () => {
+                await lifecycle.archiveWorktree()
+                onClose()
+              }}
+              disabled={lifecycle.isArchiving}
+            >
+              {lifecycle.isArchiving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Archive className="h-3.5 w-3.5" />
+              )}
+              {lifecycle.isArchiving ? 'Archiving...' : 'Archive'}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -1531,6 +1595,7 @@ function ReviewModeContent({
   const [followUpMode, setFollowUpMode] = useState<FollowUpMode>('build')
   const [isSending, setIsSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lifecycle = useLifecycleActions(ticket.worktree_id)
 
   // Display ticket description as context, with notice to view session for full conversation
   const reviewDescription = ticket.description ?? null
@@ -1725,7 +1790,18 @@ function ReviewModeContent({
       <DialogHeader>
         <div className="flex items-center justify-between">
           <DialogTitle>{dualPane ? 'Review' : ticket.title}</DialogTitle>
-          <JumpToSessionButton ticket={ticket} onClose={onClose} />
+          <div className="flex items-center gap-2">
+            {lifecycle.hasAttachedPR && lifecycle.attachedPR && (
+              <button
+                onClick={() => lifecycle.openPRInBrowser()}
+                className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 transition-colors"
+              >
+                <Github className="h-3 w-3" />
+                #{lifecycle.attachedPR.number}
+              </button>
+            )}
+            <JumpToSessionButton ticket={ticket} onClose={onClose} />
+          </div>
         </div>
         <DialogDescription>Review the session output and provide followup.</DialogDescription>
       </DialogHeader>
@@ -1808,6 +1884,61 @@ function ReviewModeContent({
             )}
           >
             {runRunning ? <><Square className="h-3.5 w-3.5" /> Stop</> : <><Play className="h-3.5 w-3.5" /> Run</>}
+          </Button>
+        )}
+        {ticket.worktree_id && (
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-1.5"
+            onClick={async () => {
+              const sessionId = await lifecycle.createCodeReview()
+              if (sessionId) {
+                const sessionStore = useSessionStore.getState()
+                await sessionStore.pinSessionToBoard(sessionId)
+                sessionStore.setActivePinnedSession(sessionId)
+                onClose()
+              }
+            }}
+          >
+            <FileSearch className="h-3.5 w-3.5" />
+            Review
+          </Button>
+        )}
+        {ticket.worktree_id && lifecycle.isGitHub && !lifecycle.hasAttachedPR && (
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-1.5"
+            onClick={async () => {
+              const sessionId = await lifecycle.createPR()
+              if (sessionId) {
+                const sessionStore = useSessionStore.getState()
+                await sessionStore.pinSessionToBoard(sessionId)
+                sessionStore.setActivePinnedSession(sessionId)
+                onClose()
+              }
+            }}
+          >
+            <GitPullRequest className="h-3.5 w-3.5" />
+            Create PR
+          </Button>
+        )}
+        {ticket.worktree_id && lifecycle.isGitHub && lifecycle.hasAttachedPR &&
+          lifecycle.prLiveState?.state !== 'MERGED' && lifecycle.prLiveState?.state !== 'CLOSED' && (
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-1.5 bg-emerald-600/10 border-emerald-500/30 text-emerald-500 hover:bg-emerald-600/20"
+            onClick={() => lifecycle.mergePR()}
+            disabled={lifecycle.isMergingPR}
+          >
+            {lifecycle.isMergingPR ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <GitMerge className="h-3.5 w-3.5" />
+            )}
+            {lifecycle.isMergingPR ? 'Merging...' : 'Merge PR'}
           </Button>
         )}
         <Button
