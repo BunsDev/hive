@@ -424,7 +424,7 @@ export function KanbanColumn({ column, tickets, archivedTickets, projectId, conn
 
               <span className="inline-flex h-5 min-w-[20px] items-center justify-center gap-0.5 rounded-full bg-muted/40 px-1.5 text-[11px] font-medium text-muted-foreground">
                 {showArchived && archivedTickets && archivedTickets.length > 0
-                  ? <>{tickets.length}+{archivedTickets.length}<Archive className="h-2.5 w-2.5" /></>
+                  ? <>{tickets.length}+<span className="italic">{archivedTickets.length}</span></>
                   : tickets.length}
               </span>
             </div>
