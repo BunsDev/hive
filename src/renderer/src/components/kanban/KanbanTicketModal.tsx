@@ -783,8 +783,18 @@ function EditModeContent({
     }
   }, [deleteTicket, ticket.id, ticket.project_id, onClose])
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && title.trim()) {
+        e.preventDefault()
+        handleSave()
+      }
+    },
+    [handleSave, title]
+  )
+
   return (
-    <>
+    <div onKeyDown={handleKeyDown}>
       <DialogHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1014,7 +1024,7 @@ function EditModeContent({
           </Button>
         </div>
       </DialogFooter>
-    </>
+    </div>
   )
 }
 
