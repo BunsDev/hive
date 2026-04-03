@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { existsSync, rmSync } from 'node:fs'
 import { loadHeadlessConfig } from './config'
 import { ensureTlsCerts, generateTlsCerts, getCertFingerprint } from './tls'
 import { generateApiKey, hashApiKey, BruteForceTracker } from './plugins/auth'
@@ -8,9 +9,9 @@ import { startGraphQLServer, type ServerHandle } from './index'
 import { getDatabase } from '../main/db'
 import { resolveClaudeBinaryPath } from '../main/services/claude-binary-resolver'
 import { ClaudeCodeImplementer } from '../main/services/claude-code-implementer'
+import { CodexImplementer } from '../main/services/codex-implementer'
 import { AgentSdkManager } from '../main/services/agent-sdk-manager'
 import type { AgentSdkImplementer } from '../main/services/agent-sdk-types'
-import { rmSync } from 'node:fs'
 
 export interface HeadlessBootstrapOpts {
   port?: number
@@ -35,6 +36,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   claudeImpl.setDatabaseService(db)
   claudeImpl.setClaudeBinaryPath(claudeBinaryPath)
 
+  // Placeholder for OpenCode — not available in headless mode
   const openCodePlaceholder = {
     id: 'opencode' as const,
     capabilities: {
@@ -69,7 +71,11 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
     renameSession: async () => {},
     setMainWindow: () => {}
   } satisfies AgentSdkImplementer
-  const sdkManager = new AgentSdkManager(openCodePlaceholder, claudeImpl)
+
+  // Registry of SDK implementers
+  const codexImpl = new CodexImplementer()
+  codexImpl.setDatabaseService(db)
+  const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
 
   // EventBus singleton
   const eventBus = getEventBus()
@@ -104,14 +110,40 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   // Periodic cleanup
   const cleanupInterval = setInterval(() => bruteForce.cleanup(), 60_000)
 
+  // Resolve web UI root directory
+  let webRoot: string | undefined
+  if (config.webRoot) {
+    // Explicit webRoot from config
+    if (existsSync(join(config.webRoot, 'index.html'))) {
+      webRoot = config.webRoot
+    } else {
+      console.warn(
+        `Warning: webRoot "${config.webRoot}" does not contain index.html, falling back to API-only mode`
+      )
+    }
+  } else {
+    // Default: look for bundled web UI in known locations
+    const candidates = [
+      join(__dirname, 'web'),
+      join(__dirname, '..', 'web'),
+      join(__dirname, '..', '..', 'out', 'web'),
+      join(__dirname, '..', '..', 'dist', 'web')
+    ]
+    for (const candidate of candidates) {
+      if (existsSync(join(candidate, 'index.html'))) {
+        webRoot = candidate
+        break
+      }
+    }
+  }
+
   // Start GraphQL server
   serverHandle = startGraphQLServer({
     port,
     bindAddress: bind,
     insecure: config.insecure,
-    ...(config.insecure
-      ? {}
-      : { tlsCert: config.tls.certPath, tlsKey: config.tls.keyPath }),
+    ...(config.insecure ? {} : { tlsCert: config.tls.certPath, tlsKey: config.tls.keyPath }),
+    webRoot,
     context: { db, sdkManager, eventBus },
     getKeyHash: () => db.getSetting('headless_api_key_hash') || '',
     bruteForce
@@ -119,6 +151,11 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
 
   const protocol = config.insecure ? 'http' : 'https'
   console.log(`Hive headless server running on ${protocol}://${bind}:${port}/graphql`)
+  if (webRoot) {
+    console.log(`Web UI available at ${protocol}://${bind}:${port}/`)
+  } else {
+    console.log('Web UI not found, API-only mode')
+  }
   if (fingerprint) {
     console.log(`TLS fingerprint: ${fingerprint}`)
   }

@@ -30,6 +30,12 @@ function mapProject(row: any) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapWorktree(row: any) {
   if (!row) return null
+  let attachments: { id: string; type: string; url: string; label: string }[] = []
+  try {
+    attachments = JSON.parse(row.attachments || '[]')
+  } catch {
+    attachments = []
+  }
   return {
     id: row.id,
     projectId: row.project_id,
@@ -44,6 +50,11 @@ function mapWorktree(row: any) {
     lastModelProviderId: row.last_model_provider_id,
     lastModelId: row.last_model_id,
     lastModelVariant: row.last_model_variant,
+    attachments,
+    pinned: Boolean(row.pinned),
+    context: row.context ?? null,
+    githubPrNumber: row.github_pr_number ?? null,
+    githubPrUrl: row.github_pr_url ?? null,
     createdAt: row.created_at,
     lastAccessedAt: row.last_accessed_at
   }
@@ -60,6 +71,8 @@ function mapSession(row: any) {
     name: row.name,
     status: row.status,
     opencodeSessionId: row.opencode_session_id,
+    // Only claude-code needs hyphen→underscore conversion (claude-code → claude_code).
+    // Other SDK values (opencode, codex, terminal) pass through as-is.
     agentSdk: row.agent_sdk === 'claude-code' ? 'claude_code' : row.agent_sdk,
     mode: row.mode,
     modelProviderId: row.model_provider_id,
@@ -104,8 +117,7 @@ export const dbMutationResolvers: Resolvers = {
       const data: Record<string, unknown> = {}
       if (input.name !== undefined) data.name = input.name
       if (input.description !== undefined) data.description = input.description
-      if (input.tags !== undefined)
-        data.tags = input.tags ? JSON.stringify(input.tags) : null
+      if (input.tags !== undefined) data.tags = input.tags ? JSON.stringify(input.tags) : null
       if (input.language !== undefined) data.language = input.language
       if (input.customIcon !== undefined) data.custom_icon = input.customIcon
       if (input.setupScript !== undefined) data.setup_script = input.setupScript
@@ -156,6 +168,26 @@ export const dbMutationResolvers: Resolvers = {
       )
       return { success: true }
     },
+    worktreeAddAttachment: async (_parent, { worktreeId, attachment }, ctx) => {
+      return ctx.db.addAttachment(worktreeId, {
+        type: attachment.type as 'jira' | 'figma',
+        url: attachment.url,
+        label: attachment.label
+      })
+    },
+    worktreeRemoveAttachment: async (_parent, { worktreeId, attachmentId }, ctx) => {
+      return ctx.db.removeAttachment(worktreeId, attachmentId)
+    },
+    worktreeAttachPR: async (_parent, { worktreeId, prNumber, prUrl }, ctx) => {
+      return ctx.db.attachPR(worktreeId, prNumber, prUrl)
+    },
+    worktreeDetachPR: async (_parent, { worktreeId }, ctx) => {
+      return ctx.db.detachPR(worktreeId)
+    },
+    worktreeSetPinned: async (_parent, { worktreeId, pinned }, ctx) => {
+      ctx.db.updateWorktree(worktreeId, { pinned: pinned ? 1 : 0 })
+      return { success: true }
+    },
 
     // -- Sessions (Session 39) --
     createSession: async (_parent, { input }, ctx) => {
@@ -166,9 +198,7 @@ export const dbMutationResolvers: Resolvers = {
         name: input.name ?? null,
         opencode_session_id: input.opencodeSessionId ?? null,
         agent_sdk:
-          input.agentSdk === 'claude_code'
-            ? 'claude-code'
-            : (input.agentSdk ?? 'opencode'),
+          input.agentSdk === 'claude_code' ? 'claude-code' : (input.agentSdk ?? 'opencode'),
         model_provider_id: input.modelProviderId ?? null,
         model_id: input.modelId ?? null,
         model_variant: input.modelVariant ?? null
@@ -179,14 +209,11 @@ export const dbMutationResolvers: Resolvers = {
       const data: Record<string, unknown> = {}
       if (input.name !== undefined) data.name = input.name
       if (input.status !== undefined) data.status = input.status
-      if (input.opencodeSessionId !== undefined)
-        data.opencode_session_id = input.opencodeSessionId
+      if (input.opencodeSessionId !== undefined) data.opencode_session_id = input.opencodeSessionId
       if (input.agentSdk !== undefined)
-        data.agent_sdk =
-          input.agentSdk === 'claude_code' ? 'claude-code' : input.agentSdk
+        data.agent_sdk = input.agentSdk === 'claude_code' ? 'claude-code' : input.agentSdk
       if (input.mode !== undefined) data.mode = input.mode
-      if (input.modelProviderId !== undefined)
-        data.model_provider_id = input.modelProviderId
+      if (input.modelProviderId !== undefined) data.model_provider_id = input.modelProviderId
       if (input.modelId !== undefined) data.model_id = input.modelId
       if (input.modelVariant !== undefined) data.model_variant = input.modelVariant
       if (input.updatedAt !== undefined) data.updated_at = input.updatedAt

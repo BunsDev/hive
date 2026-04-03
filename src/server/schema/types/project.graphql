@@ -6,6 +6,7 @@ type Project {
   tags: String
   language: String
   customIcon: String
+  detectedIcon: String
   setupScript: String
   runScript: String
   archiveScript: String
@@ -29,8 +30,26 @@ type Worktree {
   lastModelProviderId: String
   lastModelId: String
   lastModelVariant: String
+  attachments: [Attachment!]!
+  pinned: Boolean!
+  context: String
+  githubPrNumber: Int
+  githubPrUrl: String
   createdAt: String!
   lastAccessedAt: String!
+}
+
+type Attachment {
+  id: String!
+  type: String!
+  url: String!
+  label: String!
+}
+
+input AttachmentInput {
+  type: String!
+  url: String!
+  label: String!
 }
 
 type Session {
@@ -105,6 +124,8 @@ enum SessionMode {
 enum AgentSdk {
   opencode
   claude_code
+  codex
+  terminal
 }
 
 # --- Inputs ---
@@ -122,6 +143,7 @@ input UpdateProjectInput {
   tags: [String!]
   language: String
   customIcon: String
+  detectedIcon: String
   setupScript: String
   runScript: String
   archiveScript: String
@@ -163,6 +185,8 @@ input CreateFromBranchInput {
   projectPath: String!
   projectName: String!
   branchName: String!
+  prNumber: Int
+  nameHint: String
 }
 
 input UpdateWorktreeInput {

@@ -134,3 +134,10 @@ input PermissionReplyInput {
   worktreePath: String
   message: String
 }
+
+input CommandApprovalReplyInput {
+  worktreePath: String!
+  hiveSessionId: String!
+  requestId: String!
+  approved: Boolean!
+}

@@ -41,6 +41,9 @@ export const connectionQueryResolvers: Resolvers = {
     },
     connection: async (_parent, { connectionId }, ctx) => {
       return mapConnection(ctx.db.getConnection(connectionId))
+    },
+    pinnedConnections: async (_parent, _args, ctx) => {
+      return ctx.db.getPinnedConnections().map(mapConnection)
     }
   }
 }

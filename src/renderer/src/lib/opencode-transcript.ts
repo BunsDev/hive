@@ -109,16 +109,41 @@ function stringifyValue(value: unknown): string | undefined {
   }
 }
 
+function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 export function extractTextContentFromParts(parts: unknown): string {
   if (!Array.isArray(parts)) return ''
 
-  return parts
-    .map((part) => {
-      const record = asRecord(part)
-      if (!record || record.type !== 'text') return ''
-      return asString(record.text) ?? ''
-    })
-    .join('')
+  const contentParts: string[] = []
+
+  for (const part of parts) {
+    const record = asRecord(part)
+    if (!record) continue
+
+    if (record.type === 'text') {
+      const text = asString(record.text)
+      if (text) contentParts.push(text)
+    } else if (record.type === 'file') {
+      // Reconstruct data attachments as XML so images persist after refresh
+      const mime = asString(record.mime) ?? 'application/octet-stream'
+      const url = asString(record.url) ?? ''
+      const filename = asString(record.filename) ?? 'file'
+
+      if (url.startsWith('data:')) {
+        contentParts.push(
+          `<data-attachment mime="${escapeXmlAttr(mime)}" name="${escapeXmlAttr(filename)}">${url}</data-attachment>`
+        )
+      }
+    }
+  }
+
+  return contentParts.join('\n')
 }
 
 export function mapOpencodePartToStreamingPart(part: unknown, index = 0): StreamingPart | null {
@@ -286,9 +311,6 @@ export function mapOpencodeMessagesToSessionViewMessages(messages: unknown[]): O
 
       if (a.sortTime !== undefined && b.sortTime === undefined) return -1
       if (a.sortTime === undefined && b.sortTime !== undefined) return 1
-
-      const idCompare = a.message.id.localeCompare(b.message.id)
-      if (idCompare !== 0) return idCompare
 
       return a.originalIndex - b.originalIndex
     })

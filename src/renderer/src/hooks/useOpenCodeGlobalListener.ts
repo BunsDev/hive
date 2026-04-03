@@ -5,15 +5,18 @@ import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useQuestionStore } from '@/stores/useQuestionStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
+import { useCommandApprovalStore, type CommandApprovalRequest } from '@/stores/useCommandApprovalStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { useContextStore } from '@/stores/useContextStore'
+import { useContextStore, type TokenInfo, type SessionModelRef } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
-import { useUsageStore } from '@/stores'
-import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useUsageStore, resolveUsageProvider } from '@/stores'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
+import { computeTokenDelta } from '@/lib/token-baselines'
 import { messageSendTimes } from '@/lib/message-send-times'
 import { checkAutoApprove } from '@/lib/permissionUtils'
+import { isPlanLike } from '@/lib/constants'
+import { useKanbanStore } from '@/stores/useKanbanStore'
 
 interface PromptDispatchContext {
   worktreePath: string
@@ -114,7 +117,8 @@ function markBackgroundSessionCompleted(sessionId: string): void {
   const sendTime = messageSendTimes.get(sessionId)
   const durationMs = sendTime ? Date.now() - sendTime : 0
   const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
-  useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'completed', { word, durationMs })
+  const tokenDelta = computeTokenDelta(sessionId)
+  useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'completed', { word, durationMs, tokenDelta })
 
   const now = Date.now()
   const sessions = useSessionStore.getState().sessionsByWorktree
@@ -183,7 +187,25 @@ export function useOpenCodeGlobalListener(): void {
     const unsubscribe = window.opencodeOps?.onStream
       ? window.opencodeOps.onStream((event) => {
           const sessionId = event.sessionId
-          const activeId = useSessionStore.getState().activeSessionId
+          // When the kanban board is showing, SessionView isn't mounted —
+          // treat the "active" session as a background session so the global
+          // listener handles its status badges, completion, permissions, etc.
+          const rawActiveId = useSessionStore.getState().activeSessionId
+          const activeId = useKanbanStore.getState().isBoardViewActive ? null : rawActiveId
+
+          // Handle session materialization globally so the Zustand store
+          // is always up-to-date with the real SDK session ID.  Without this,
+          // sessions created via the kanban board (where SessionView / useSessionStream
+          // are never mounted) keep their placeholder `pending::UUID` ID forever,
+          // and reconnect / getMessages fail because the backend uses the real ID.
+          if (event.type === 'session.materialized') {
+            const newId = (event.data as Record<string, unknown> | undefined)
+              ?.newSessionId as string | undefined
+            if (newId) {
+              useSessionStore.getState().setOpenCodeSessionId(sessionId, newId)
+            }
+            return
+          }
 
           // Handle model limits from Claude Code session init
           if (event.type === 'session.model_limits') {
@@ -200,6 +222,29 @@ export function useOpenCodeGlobalListener(): void {
                 }
               }
             }
+            return
+          }
+
+          // Handle context usage from Codex sessions
+          if (event.type === 'session.context_usage') {
+            const { tokens, model, contextWindow } = event.data as {
+              tokens: TokenInfo
+              model: SessionModelRef
+              contextWindow: number
+            }
+            useContextStore.getState().setSessionTokens(sessionId, tokens, model)
+            if (contextWindow > 0 && model) {
+              useContextStore
+                .getState()
+                .setModelLimit(model.modelID, contextWindow, model.providerID)
+              useContextStore.getState().setModelLimit(model.modelID, contextWindow)
+            }
+            return
+          }
+
+          // Handle context compaction from Codex sessions
+          if (event.type === 'session.context_compacted') {
+            useContextStore.getState().clearSessionTokenSnapshot(sessionId)
             return
           }
 
@@ -261,20 +306,20 @@ export function useOpenCodeGlobalListener(): void {
             return
           }
 
-          // Handle question events for background sessions
-          if (event.type === 'question.asked' && sessionId !== activeId) {
+          // Handle question events for all sessions (catch-all; SessionView also handles active session)
+          if (event.type === 'question.asked') {
             const request = event.data
             if (request?.id && request?.questions) {
               useQuestionStore.getState().addQuestion(sessionId, request)
-              useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'answering')
+              // Only set status badge for background sessions; active session manages its own
+              if (sessionId !== activeId) {
+                useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'answering')
+              }
             }
             return
           }
 
-          if (
-            (event.type === 'question.replied' || event.type === 'question.rejected') &&
-            sessionId !== activeId
-          ) {
+          if (event.type === 'question.replied' || event.type === 'question.rejected') {
             const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
             if (requestId) {
               useQuestionStore.getState().removeQuestion(sessionId, requestId)
@@ -282,44 +327,100 @@ export function useOpenCodeGlobalListener(): void {
             return
           }
 
-          // Handle permission events for background sessions
-          if (event.type === 'permission.asked' && sessionId !== activeId) {
+          // Handle permission events for all sessions (catch-all; SessionView also handles active session)
+          if (event.type === 'permission.asked') {
             const request = event.data
             if (request?.id && request?.permission) {
               const { commandFilter } = useSettingsStore.getState()
-              // Security globally off OR all sub-patterns in commandFilter allowlist → auto-approve
-              if (
+              const isAutoApprovable =
                 !commandFilter.enabled ||
                 checkAutoApprove(request as PermissionRequest, commandFilter.allowlist)
-              ) {
-                window.opencodeOps
-                  .permissionReply(request.id, 'once', undefined)
-                  .catch((err: unknown) => {
-                    console.warn('Auto-approve permissionReply (background) failed:', err)
-                  })
+
+              if (isAutoApprovable) {
+                // Background: auto-approve directly
+                if (sessionId !== activeId) {
+                  window.opencodeOps
+                    .permissionReply(request.id, 'once', undefined)
+                    .catch((err: unknown) => {
+                      console.warn('Auto-approve permissionReply (background) failed:', err)
+                    })
+                }
+                // Active: SessionView handles auto-approve with worktreePath; skip store
                 return
               }
+              // Not auto-approvable: add to store so modal appears (dedup-safe)
               usePermissionStore.getState().addPermission(sessionId, request)
-              useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'permission')
+              if (sessionId !== activeId) {
+                useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'permission')
+              }
             }
             return
           }
 
-          if (event.type === 'permission.replied' && sessionId !== activeId) {
+          if (event.type === 'permission.replied') {
             const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
             if (requestId) {
               usePermissionStore.getState().removePermission(sessionId, requestId)
-              // Revert to working/planning if no more pending permissions
-              const remaining = usePermissionStore.getState().pendingBySession.get(sessionId)
-              if (!remaining || remaining.length === 0) {
-                const mode = useSessionStore.getState().getSessionMode(sessionId)
-                useWorktreeStatusStore
-                  .getState()
-                  .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
+              // Revert to working/planning if no more pending permissions (background only)
+              if (sessionId !== activeId) {
+                const remaining = usePermissionStore.getState().pendingBySession.get(sessionId)
+                if (!remaining || remaining.length === 0) {
+                  const mode = useSessionStore.getState().getSessionMode(sessionId)
+                  useWorktreeStatusStore
+                    .getState()
+                    .setSessionStatus(sessionId, isPlanLike(mode) ? 'planning' : 'working')
+                }
               }
             }
             return
           }
+
+          // Handle command approval events for all sessions (catch-all; SessionView also handles active session)
+          if (event.type === 'command.approval_needed') {
+            const request = event.data
+            if (request?.id && request?.toolName) {
+              const { commandFilter } = useSettingsStore.getState()
+
+              if (!commandFilter.enabled) {
+                // Background: auto-approve directly when security is disabled
+                if (sessionId !== activeId) {
+                  window.opencodeOps
+                    .commandApprovalReply(request.id, true)
+                    .catch((err: unknown) => {
+                      console.warn('Auto-approve commandApprovalReply (background) failed:', err)
+                    })
+                }
+                // Active: SessionView handles auto-approve; skip store
+                return
+              }
+              // Security enabled: add to store so dialog appears (dedup-safe)
+              useCommandApprovalStore.getState().addApproval(sessionId, request)
+              if (sessionId !== activeId) {
+                useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'command_approval')
+              }
+            }
+            return
+          }
+
+          // Handle command approval replies for all sessions
+          if (event.type === 'command.approval_replied') {
+            const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
+            if (requestId) {
+              useCommandApprovalStore.getState().removeApproval(sessionId, requestId)
+              // Revert to working/planning if no more pending approvals (background only)
+              if (sessionId !== activeId) {
+                const remaining = useCommandApprovalStore.getState().getApprovals(sessionId)
+                if (remaining.length === 0) {
+                  const mode = useSessionStore.getState().getSessionMode(sessionId)
+                  useWorktreeStatusStore
+                    .getState()
+                    .setSessionStatus(sessionId, isPlanLike(mode) ? 'planning' : 'working')
+                }
+              }
+            }
+            return
+          }
+
 
           // Handle plan approval events globally so pending state survives tab switches.
           if (event.type === 'plan.ready') {
@@ -358,11 +459,15 @@ export function useOpenCodeGlobalListener(): void {
             // Don't overwrite plan_ready — session is blocked waiting for plan approval
             if (useSessionStore.getState().getPendingPlan(sessionId)) return
 
+            // Don't overwrite command_approval — session is blocked waiting for command approval
+            const currentStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+            if (currentStatus?.status === 'command_approval') return
+
             if (sessionId !== activeId) {
               const currentMode = useSessionStore.getState().getSessionMode(sessionId)
               useWorktreeStatusStore
                 .getState()
-                .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+                .setSessionStatus(sessionId, isPlanLike(currentMode) ? 'planning' : 'working')
             }
 
             // Always track recent activity so data is fresh when toggled on (Fix #6)
@@ -387,11 +492,42 @@ export function useOpenCodeGlobalListener(): void {
           if (status?.type !== 'idle') return
 
           if (useSettingsStore.getState().showUsageIndicator) {
-            useUsageStore.getState().fetchUsage()
+            const sessionState = useSessionStore.getState()
+            let idleSession: {
+              agent_sdk?: string | null
+              model_provider_id?: string | null
+              model_id?: string | null
+            } | null = null
+            for (const sessions of sessionState.sessionsByWorktree.values()) {
+              const found = sessions.find((s) => s.id === sessionId)
+              if (found) {
+                idleSession = found
+                break
+              }
+            }
+            if (!idleSession) {
+              for (const sessions of sessionState.sessionsByConnection.values()) {
+                const found = sessions.find((s) => s.id === sessionId)
+                if (found) {
+                  idleSession = found
+                  break
+                }
+              }
+            }
+            if (idleSession) {
+              const provider = resolveUsageProvider(idleSession)
+              useUsageStore.getState().fetchUsageForProvider(provider)
+            } else {
+              useUsageStore.getState().fetchUsage()
+            }
           }
 
           // Don't overwrite plan_ready — session is blocked waiting for plan approval
           if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+          // Don't overwrite command_approval — session is blocked waiting for command approval
+          const statusForIdle = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+          if (statusForIdle?.status === 'command_approval') return
 
           // Active session is handled by SessionView.
           if (sessionId === activeId) return
@@ -418,7 +554,7 @@ export function useOpenCodeGlobalListener(): void {
                 const mode = useSessionStore.getState().getSessionMode(sessionId)
                 useWorktreeStatusStore
                   .getState()
-                  .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
+                  .setSessionStatus(sessionId, isPlanLike(mode) ? 'planning' : 'working')
 
                 const result = await window.opencodeOps.prompt(
                   context.worktreePath,
@@ -450,6 +586,10 @@ export function useOpenCodeGlobalListener(): void {
 
                 // Don't overwrite plan_ready — session is blocked waiting for plan approval
                 if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+                // Don't overwrite command_approval — session is blocked waiting for command approval
+                const followUpStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+                if (followUpStatus?.status === 'command_approval') return
 
                 const nextFollowUp = useSessionStore.getState().dequeueFollowUpMessage(sessionId)
                 if (nextFollowUp) {

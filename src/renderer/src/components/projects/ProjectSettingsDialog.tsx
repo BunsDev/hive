@@ -21,6 +21,7 @@ interface Project {
   path: string
   language: string | null
   custom_icon: string | null
+  detected_icon: string | null
   setup_script: string | null
   run_script: string | null
   archive_script: string | null
@@ -131,6 +132,7 @@ export function ProjectSettingsDialog({
                 <LanguageIcon
                   language={project.language}
                   customIcon={customIcon}
+                  detectedIcon={project.detected_icon}
                   className="h-5 w-5 text-muted-foreground shrink-0"
                 />
               </div>

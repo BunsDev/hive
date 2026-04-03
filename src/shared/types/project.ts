@@ -6,6 +6,7 @@ export interface Project {
   tags: string | null
   language: string | null
   custom_icon: string | null
+  detected_icon: string | null
   setup_script: string | null
   run_script: string | null
   archive_script: string | null

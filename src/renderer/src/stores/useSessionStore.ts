@@ -3,9 +3,11 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { SelectedModel } from './useSettingsStore'
 import { useGitStore } from './useGitStore'
 import { useWorktreeStore } from './useWorktreeStore'
+import { notifyKanbanSessionSync } from './store-coordination'
+import { useSettingsStore } from './useSettingsStore'
 
 // Session mode type
-export type SessionMode = 'build' | 'plan'
+export type SessionMode = 'build' | 'plan' | 'super-plan'
 
 // Pending plan approval state (from ExitPlanMode blocking tool)
 export interface PendingPlan {
@@ -23,7 +25,7 @@ interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   mode: SessionMode
   model_provider_id: string | null
   model_id: string | null
@@ -40,6 +42,8 @@ interface SessionState {
   tabOrderByWorktree: Map<string, string[]>
   // Mode per session - keyed by session ID
   modeBySession: Map<string, SessionMode>
+  // Super armed state per session - keyed by session ID (memory only, not persisted)
+  superArmedBySession: Map<string, boolean>
   // Pending initial messages - keyed by session ID (e.g., code review prompts)
   pendingMessages: Map<string, string>
   // Pending plan approvals - keyed by session ID (from ExitPlanMode blocking tool)
@@ -70,18 +74,28 @@ interface SessionState {
   // MainPane subscribes to this to prune mountedTerminalSessionIds.
   closedTerminalSessionIds: Set<string>
 
+  // Orphaned sessions (from archived worktrees) - read-only, not attached to any worktree
+  orphanedSessions: Map<string, Session>
+
   // Actions
   acknowledgeClosedTerminals: (ids: Set<string>) => void
+  openOrphanedSession: (session: Session) => void
+  closeOrphanedSessions: () => void
   loadSessions: (worktreeId: string, projectId: string) => Promise<void>
   createSession: (
     worktreeId: string,
     projectId: string,
-    agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+    initialMode?: SessionMode
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
   closeSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>
   reopenSession: (
     sessionId: string,
     worktreeId: string
+  ) => Promise<{ success: boolean; error?: string }>
+  reopenConnectionSession: (
+    sessionId: string,
+    connectionId: string
   ) => Promise<{ success: boolean; error?: string }>
   setActiveSession: (sessionId: string | null) => void
   setActiveWorktree: (worktreeId: string | null) => void
@@ -90,9 +104,15 @@ interface SessionState {
   getSessionsForWorktree: (worktreeId: string) => Session[]
   getTabOrderForWorktree: (worktreeId: string) => string[]
   getSessionMode: (sessionId: string) => SessionMode
+  getSuperArmed: (sessionId: string) => boolean
   toggleSessionMode: (sessionId: string) => Promise<void>
+  toggleSuperMode: (sessionId: string) => Promise<void>
   setSessionMode: (sessionId: string, mode: SessionMode) => Promise<void>
-  setSessionModel: (sessionId: string, model: SelectedModel) => Promise<void>
+  setSessionModel: (
+    sessionId: string,
+    model: SelectedModel,
+    options?: { skipGlobalUpdate?: boolean }
+  ) => Promise<void>
   setOpenCodeSessionId: (sessionId: string, opencodeSessionId: string | null) => void
   setPendingMessage: (sessionId: string, message: string) => void
   dequeuePendingMessage: (sessionId: string) => string | null
@@ -102,6 +122,7 @@ interface SessionState {
   dequeueFollowUpMessage: (sessionId: string) => string | null
   requeueFollowUpMessageFront: (sessionId: string, message: string) => void
   consumeFollowUpMessage: (sessionId: string) => string | null
+  enqueueFollowUpMessage: (sessionId: string, message: string) => void
   closeOtherSessions: (worktreeId: string, keepSessionId: string) => Promise<void>
   closeSessionsToRight: (worktreeId: string, fromSessionId: string) => Promise<void>
   // Plan approval
@@ -118,7 +139,8 @@ interface SessionState {
   loadConnectionSessions: (connectionId: string) => Promise<void>
   createConnectionSession: (
     connectionId: string,
-    agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+    initialMode?: SessionMode
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
   setActiveConnectionSession: (sessionId: string | null) => void
   setActiveConnection: (connectionId: string | null) => void
@@ -154,6 +176,7 @@ export const useSessionStore = create<SessionState>()(
       sessionsByWorktree: new Map(),
       tabOrderByWorktree: new Map(),
       modeBySession: new Map(),
+      superArmedBySession: new Map(),
       pendingMessages: new Map(),
       pendingPlans: new Map(),
       pendingFollowUpMessages: new Map(),
@@ -170,6 +193,9 @@ export const useSessionStore = create<SessionState>()(
       activeConnectionId: null,
       inlineConnectionSessionId: null,
       closedTerminalSessionIds: new Set<string>(),
+
+      // Orphaned sessions
+      orphanedSessions: new Map(),
 
       acknowledgeClosedTerminals: (ids: Set<string>) => {
         set((state) => {
@@ -264,7 +290,8 @@ export const useSessionStore = create<SessionState>()(
       createSession: async (
         worktreeId: string,
         projectId: string,
-        agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+        initialMode?: SessionMode
       ) => {
         try {
           // Resolve default agent SDK from settings
@@ -279,9 +306,21 @@ export const useSessionStore = create<SessionState>()(
 
           if (!isTerminal) {
             const { resolveModelForSdk } = await import('./useSettingsStore')
+            const configuredDefaultSdk = useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
 
-            // Priority 1: per-provider default → (legacy) global default
-            defaultModel = resolveModelForSdk(defaultAgentSdk)
+            // Priority 1: mode-specific default (only when session SDK matches the
+            // configured default — mode defaults are set in that SDK's context)
+            if (defaultAgentSdk === configuredDefaultSdk) {
+              const modeModel = useSettingsStore.getState().getModelForMode(initialMode ?? 'build')
+              if (modeModel) {
+                defaultModel = modeModel
+              }
+            }
+
+            // Priority 2: per-provider default → (legacy) global default
+            if (!defaultModel) {
+              defaultModel = resolveModelForSdk(defaultAgentSdk)
+            }
 
             // Legacy worktree fallback only when per-provider feature not yet active
             if (!defaultModel) {
@@ -320,6 +359,7 @@ export const useSessionStore = create<SessionState>()(
             project_id: projectId,
             name: isTerminal ? `Terminal ${sessionNumber}` : `Session ${sessionNumber}`,
             agent_sdk: defaultAgentSdk,
+            mode: initialMode || 'build',
             ...(defaultModel
               ? {
                   model_provider_id: defaultModel.providerID,
@@ -413,7 +453,20 @@ export const useSessionStore = create<SessionState>()(
             const newWorktreeTabOrderMap = new Map(state.tabOrderByWorktree)
             const newConnectionSessionsMap = new Map(state.sessionsByConnection)
             const newConnectionTabOrderMap = new Map(state.tabOrderByConnection)
+            const newOrphanedSessions = new Map(state.orphanedSessions)
             let newActiveSessionId = state.activeSessionId
+
+            // Check if this is an orphaned session
+            if (newOrphanedSessions.has(sessionId)) {
+              newOrphanedSessions.delete(sessionId)
+              if (state.activeSessionId === sessionId) {
+                newActiveSessionId = null
+              }
+              return {
+                orphanedSessions: newOrphanedSessions,
+                activeSessionId: newActiveSessionId
+              }
+            }
 
             // Check worktree sessions first
             let foundInWorktree = false
@@ -510,9 +563,9 @@ export const useSessionStore = create<SessionState>()(
 
           // If this session was a PR-creating session, cancel the PR flow
           const gitStore = useGitStore.getState()
-          for (const [worktreeId, prInfo] of gitStore.prInfo.entries()) {
-            if (prInfo.sessionId === sessionId && prInfo.state === 'creating') {
-              gitStore.setPrState(worktreeId, { state: 'none' })
+          for (const [worktreeId, creation] of gitStore.prCreation.entries()) {
+            if (creation.sessionId === sessionId && creation.creating) {
+              gitStore.setPrCreation(worktreeId, null)
               break
             }
           }
@@ -529,7 +582,7 @@ export const useSessionStore = create<SessionState>()(
       // Reopen a closed session (from history) - marks as active and adds to tabs
       reopenSession: async (sessionId: string, worktreeId: string) => {
         try {
-          // Mark session as active again
+          // 1. Update database status first - this ensures persistence
           const updatedSession = await window.db.session.update(sessionId, {
             status: 'active',
             completed_at: null
@@ -539,16 +592,42 @@ export const useSessionStore = create<SessionState>()(
             return { success: false, error: 'Session not found' }
           }
 
+          // 2. Clear all prompt stores BEFORE activating session to prevent stale/malformed data
+          const [{ useQuestionStore }, { usePermissionStore }, { useCommandApprovalStore }, { useFileViewerStore }] = await Promise.all([
+            import('./useQuestionStore'),
+            import('./usePermissionStore'),
+            import('./useCommandApprovalStore'),
+            import('./useFileViewerStore')
+          ])
+
+          // Clear any stale prompts from previous session state
+          useQuestionStore.getState().clearSession(sessionId)
+          usePermissionStore.getState().clearSession(sessionId)
+          useCommandApprovalStore.getState().clearSession(sessionId)
+          // Clear file viewer so session takes focus
+          useFileViewerStore.getState().setActiveFile(null)
+          useFileViewerStore.getState().clearActiveDiff()
+
+          // 3. Update state to add the session to tabs and make it active
           set((state) => {
             const newSessionsMap = new Map(state.sessionsByWorktree)
             const existingSessions = newSessionsMap.get(worktreeId) || []
 
-            // Only add if not already in the list
-            if (!existingSessions.some((s) => s.id === sessionId)) {
-              newSessionsMap.set(worktreeId, [updatedSession, ...existingSessions])
+            // Add the reopened session if not already present
+            let updatedSessions: typeof existingSessions
+            const existingIndex = existingSessions.findIndex((s) => s.id === sessionId)
+            if (existingIndex >= 0) {
+              // Update the existing session with fresh data
+              updatedSessions = [...existingSessions]
+              updatedSessions[existingIndex] = updatedSession
+            } else {
+              // Prepend the reopened session to the list
+              updatedSessions = [updatedSession, ...existingSessions]
             }
 
-            // Add to tab order
+            newSessionsMap.set(worktreeId, updatedSessions)
+
+            // Add to tab order if not already there
             const newTabOrderMap = new Map(state.tabOrderByWorktree)
             const existingOrder = newTabOrderMap.get(worktreeId) || []
             if (!existingOrder.includes(sessionId)) {
@@ -568,6 +647,77 @@ export const useSessionStore = create<SessionState>()(
           return {
             success: false,
             error: error instanceof Error ? error.message : 'Failed to reopen session'
+          }
+        }
+      },
+
+      // Reopen a closed connection session (from history)
+      reopenConnectionSession: async (sessionId: string, connectionId: string) => {
+        try {
+          // 1. Update database status first - this ensures persistence
+          const updatedSession = await window.db.session.update(sessionId, {
+            status: 'active',
+            completed_at: null
+          })
+
+          if (!updatedSession) {
+            return { success: false, error: 'Session not found' }
+          }
+
+          // 2. Clear all prompt stores BEFORE activating session
+          const [{ useQuestionStore }, { usePermissionStore }, { useCommandApprovalStore }, { useFileViewerStore }] = await Promise.all([
+            import('./useQuestionStore'),
+            import('./usePermissionStore'),
+            import('./useCommandApprovalStore'),
+            import('./useFileViewerStore')
+          ])
+
+          useQuestionStore.getState().clearSession(sessionId)
+          usePermissionStore.getState().clearSession(sessionId)
+          useCommandApprovalStore.getState().clearSession(sessionId)
+          useFileViewerStore.getState().setActiveFile(null)
+          useFileViewerStore.getState().clearActiveDiff()
+
+          // 3. Update state to add the session to tabs and make it active
+          set((state) => {
+            const newSessionsMap = new Map(state.sessionsByConnection)
+            const existingSessions = newSessionsMap.get(connectionId) || []
+
+            // Add the reopened session if not already present
+            let updatedSessions: typeof existingSessions
+            const existingIndex = existingSessions.findIndex((s) => s.id === sessionId)
+            if (existingIndex >= 0) {
+              // Update the existing session with fresh data
+              updatedSessions = [...existingSessions]
+              updatedSessions[existingIndex] = updatedSession
+            } else {
+              // Prepend the reopened session to the list
+              updatedSessions = [updatedSession, ...existingSessions]
+            }
+
+            newSessionsMap.set(connectionId, updatedSessions)
+
+            // Add to tab order if not already there
+            const newTabOrderMap = new Map(state.tabOrderByConnection)
+            const existingOrder = newTabOrderMap.get(connectionId) || []
+            if (!existingOrder.includes(sessionId)) {
+              newTabOrderMap.set(connectionId, [...existingOrder, sessionId])
+            }
+
+            return {
+              sessionsByConnection: newSessionsMap,
+              tabOrderByConnection: newTabOrderMap,
+              activeSessionId: sessionId,
+              activeConnectionId: connectionId,
+              activeWorktreeId: null
+            }
+          })
+
+          return { success: true }
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to reopen connection session'
           }
         }
       },
@@ -731,10 +881,71 @@ export const useSessionStore = create<SessionState>()(
         return get().modeBySession.get(sessionId) || 'build'
       },
 
-      // Toggle session mode between build and plan
+      // Get super armed state for a session (defaults to false)
+      getSuperArmed: (sessionId: string): boolean => {
+        return get().superArmedBySession.get(sessionId) ?? false
+      },
+
+      // Get session by ID from either worktree or connection sessions
+      getSessionById: (sessionId: string): Session | null => {
+        for (const sessions of get().sessionsByWorktree.values()) {
+          const found = sessions.find((s) => s.id === sessionId)
+          if (found) return found
+        }
+        for (const sessions of get().sessionsByConnection.values()) {
+          const found = sessions.find((s) => s.id === sessionId)
+          if (found) return found
+        }
+        return null
+      },
+
+      // Hydrate a session from the DB into the in-memory store.
+      // Called when findSessionById discovers a session via DB fallback so
+      // that getWorktreeStatus() and zustand selectors can find it going forward.
+      // Does NOT modify tabOrder, activeSessionId, or loading state.
+      hydrateSession: (session: Session) => {
+        // Already in store? Skip.
+        if (get().getSessionById(session.id)) return
+
+        set((state) => {
+          if (session.worktree_id) {
+            const newMap = new Map(state.sessionsByWorktree)
+            const existing = newMap.get(session.worktree_id) || []
+            if (existing.some((s) => s.id === session.id)) return state
+            newMap.set(session.worktree_id, [...existing, session])
+
+            const newModeMap = new Map(state.modeBySession)
+            newModeMap.set(session.id, session.mode || 'build')
+
+            return { sessionsByWorktree: newMap, modeBySession: newModeMap }
+          } else if (session.connection_id) {
+            const newMap = new Map(state.sessionsByConnection)
+            const existing = newMap.get(session.connection_id) || []
+            if (existing.some((s) => s.id === session.id)) return state
+            newMap.set(session.connection_id, [...existing, session])
+
+            const newModeMap = new Map(state.modeBySession)
+            newModeMap.set(session.id, session.mode || 'build')
+
+            return { sessionsByConnection: newMap, modeBySession: newModeMap }
+          }
+          return state
+        })
+      },
+
+      // Toggle session mode between build and plan/super-plan (2-way cycle)
+      // From 'build': go to 'super-plan' if superArmed, else 'plan'
+      // From 'plan' or 'super-plan': go to 'build'
       toggleSessionMode: async (sessionId: string) => {
         const currentMode = get().modeBySession.get(sessionId) || 'build'
-        const newMode: SessionMode = currentMode === 'build' ? 'plan' : 'build'
+
+        let newMode: SessionMode
+        if (currentMode === 'build') {
+          newMode = get().getSuperArmed(sessionId) ? 'super-plan' : 'plan'
+        } else {
+          // 'plan' or 'super-plan' → back to 'build'
+          newMode = 'build'
+        }
 
         // Update local state immediately
         set((state) => {
@@ -749,9 +960,57 @@ export const useSessionStore = create<SessionState>()(
         } catch (error) {
           console.error('Failed to persist session mode:', error)
         }
+
+        // Auto-apply mode-specific model if configured
+        await get().applyModeDefaultModel(sessionId, newMode)
+
+        // Notify Kanban board of mode change
+        notifyKanbanSessionSync(sessionId, { type: 'mode_change', sessionMode: newMode })
       },
 
-      // Set session mode explicitly
+      // Toggle super mode for a session (only works when in plan modes)
+      // 'plan' → 'super-plan' (superArmed = true)
+      // 'super-plan' → 'plan' (superArmed = false)
+      toggleSuperMode: async (sessionId: string) => {
+        const currentMode = get().modeBySession.get(sessionId) || 'build'
+
+        let newMode: SessionMode
+        let newSuperArmed: boolean
+        if (currentMode === 'plan') {
+          newMode = 'super-plan'
+          newSuperArmed = true
+        } else if (currentMode === 'super-plan') {
+          newMode = 'plan'
+          newSuperArmed = false
+        } else {
+          // Only works in plan modes; do nothing
+          return
+        }
+
+        // Update both maps atomically
+        set((state) => {
+          const newModeMap = new Map(state.modeBySession)
+          newModeMap.set(sessionId, newMode)
+          const newSuperArmedMap = new Map(state.superArmedBySession)
+          newSuperArmedMap.set(sessionId, newSuperArmed)
+          return { modeBySession: newModeMap, superArmedBySession: newSuperArmedMap }
+        })
+
+        // Persist to database
+        try {
+          await window.db.session.update(sessionId, { mode: newMode })
+        } catch (error) {
+          console.error('Failed to persist session mode:', error)
+        }
+
+        // Auto-apply mode-specific model if configured
+        await get().applyModeDefaultModel(sessionId, newMode)
+
+        // Notify Kanban board of mode change
+        notifyKanbanSessionSync(sessionId, { type: 'mode_change', sessionMode: newMode })
+      },
+
+      // Set session mode explicitly (also applies mode-specific model default)
       setSessionMode: async (sessionId: string, mode: SessionMode) => {
         set((state) => {
           const newModeMap = new Map(state.modeBySession)
@@ -764,10 +1023,20 @@ export const useSessionStore = create<SessionState>()(
         } catch (error) {
           console.error('Failed to persist session mode:', error)
         }
+
+        // Apply mode-specific default model (same as toggleSessionMode)
+        await get().applyModeDefaultModel(sessionId, mode)
+
+        // Notify Kanban board of mode change
+        notifyKanbanSessionSync(sessionId, { type: 'mode_change', sessionMode: mode })
       },
 
       // Set model for a specific session (per-session model selection, scope-agnostic)
-      setSessionModel: async (sessionId: string, model: SelectedModel) => {
+      setSessionModel: async (
+        sessionId: string,
+        model: SelectedModel,
+        options?: { skipGlobalUpdate?: boolean }
+      ) => {
         // Update local state immediately (search both maps)
         set((state) => {
           const newWorktreeSessionsMap = new Map(state.sessionsByWorktree)
@@ -822,7 +1091,7 @@ export const useSessionStore = create<SessionState>()(
         }
 
         // Find the session's SDK to route correctly (search both scopes)
-        let agentSdk: 'opencode' | 'claude-code' | 'terminal' = 'opencode'
+        let agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' = 'opencode'
         for (const sessions of get().sessionsByWorktree.values()) {
           const found = sessions.find((s) => s.id === sessionId)
           if (found?.agent_sdk) {
@@ -850,12 +1119,16 @@ export const useSessionStore = create<SessionState>()(
         }
 
         // Update per-provider last-used model so new worktrees inherit it
-        // skipBackendPush: we already pushed to the backend above
-        try {
-          const { useSettingsStore } = await import('./useSettingsStore')
-          useSettingsStore.getState().setSelectedModelForSdk(agentSdk, model, { skipBackendPush: true })
-        } catch {
-          /* non-critical */
+        // Skip when auto-applying mode defaults — those shouldn't rewrite global preferences
+        if (!options?.skipGlobalUpdate) {
+          try {
+            const { useSettingsStore } = await import('./useSettingsStore')
+            useSettingsStore
+              .getState()
+              .setSelectedModelForSdk(agentSdk, model, { skipBackendPush: true })
+          } catch {
+            /* non-critical */
+          }
         }
 
         // Also persist as the worktree's last-used model (only for worktree sessions)
@@ -873,6 +1146,32 @@ export const useSessionStore = create<SessionState>()(
             /* non-critical */
           }
         }
+      },
+
+      // Apply mode-specific default model when toggling modes
+      applyModeDefaultModel: async (sessionId: string, newMode: SessionMode) => {
+        // Import settings store dynamically to avoid circular deps
+        const { useSettingsStore, resolveModelForSdk } = await import('./useSettingsStore')
+
+        const session = get().getSessionById(sessionId)
+        const settings = useSettingsStore.getState()
+        const sessionSdk = session?.agent_sdk ?? settings.defaultAgentSdk ?? 'opencode'
+        if (sessionSdk === 'terminal') return
+
+        const configuredDefaultSdk = settings.defaultAgentSdk ?? 'opencode'
+
+        // Mode defaults are configured in the context of the default SDK.
+        // Only apply them when the session SDK matches; otherwise fall back to per-SDK default.
+        const modeDefault =
+          sessionSdk === configuredDefaultSdk ? settings.getModelForMode(newMode) : null
+        const newModeDefault = modeDefault ?? resolveModelForSdk(sessionSdk, settings)
+        if (!newModeDefault) {
+          // No defaults configured, keep current model
+          return
+        }
+
+        // Apply the new mode's default model (without rewriting global preferences)
+        await get().setSessionModel(sessionId, newModeDefault, { skipGlobalUpdate: true })
       },
 
       // Keep opencode_session_id in sync in-memory after connect/reconnect (scope-agnostic)
@@ -989,6 +1288,15 @@ export const useSessionStore = create<SessionState>()(
       // Consume (pop first) a follow-up message for a session
       consumeFollowUpMessage: (sessionId: string): string | null => {
         return get().dequeueFollowUpMessage(sessionId)
+      },
+
+      enqueueFollowUpMessage: (sessionId: string, message: string) => {
+        set((state) => {
+          const existing = state.pendingFollowUpMessages.get(sessionId) || []
+          const newMap = new Map(state.pendingFollowUpMessages)
+          newMap.set(sessionId, [...existing, message])
+          return { pendingFollowUpMessages: newMap }
+        })
       },
 
       // Close all sessions except the kept one
@@ -1173,7 +1481,8 @@ export const useSessionStore = create<SessionState>()(
       // Create a session scoped to a connection
       createConnectionSession: async (
         connectionId: string,
-        agentSdkOverride?: 'opencode' | 'claude-code' | 'terminal'
+        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+        initialMode?: SessionMode
       ) => {
         try {
           // Look up the connection to get the first member's project_id
@@ -1186,15 +1495,31 @@ export const useSessionStore = create<SessionState>()(
 
           // Determine default model and agent SDK from global settings
           let defaultModel: { providerID: string; modelID: string; variant?: string } | null = null
-          let defaultAgentSdk: 'opencode' | 'claude-code' | 'terminal' = 'opencode'
+          let defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' = 'opencode'
           try {
             const { useSettingsStore } = await import('./useSettingsStore')
             defaultAgentSdk =
               agentSdkOverride ?? useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
             // Terminal sessions skip model resolution
             if (defaultAgentSdk !== 'terminal') {
-              const { resolveModelForSdk } = await import('./useSettingsStore')
-              defaultModel = resolveModelForSdk(defaultAgentSdk)
+              const configuredDefaultSdk = useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
+
+              // Priority 1: mode-specific default (only when session SDK matches the
+              // configured default — mode defaults are set in that SDK's context)
+              if (defaultAgentSdk === configuredDefaultSdk) {
+                const modeModel = useSettingsStore
+                  .getState()
+                  .getModelForMode(initialMode ?? 'build')
+                if (modeModel) {
+                  defaultModel = modeModel
+                }
+              }
+
+              // Priority 2: per-provider default → (legacy) global default
+              if (!defaultModel) {
+                const { resolveModelForSdk } = await import('./useSettingsStore')
+                defaultModel = resolveModelForSdk(defaultAgentSdk)
+              }
             }
           } catch {
             /* non-critical */
@@ -1352,6 +1677,47 @@ export const useSessionStore = create<SessionState>()(
         for (const sessionId of toClose) {
           await get().closeSession(sessionId)
         }
+      },
+
+      // Open an orphaned session (from archived worktree) in read-only mode
+      openOrphanedSession: (session: Session) => {
+        set((state) => {
+          const newOrphanedSessions = new Map(state.orphanedSessions)
+          newOrphanedSessions.set(session.id, session)
+
+          return {
+            orphanedSessions: newOrphanedSessions,
+            activeSessionId: session.id,
+            activeWorktreeId: null,
+            activeConnectionId: null
+          }
+        })
+
+        // Clear prompt stores and file viewer
+        Promise.all([
+          import('./useQuestionStore'),
+          import('./usePermissionStore'),
+          import('./useCommandApprovalStore'),
+          import('./useFileViewerStore')
+        ]).then(([{ useQuestionStore }, { usePermissionStore }, { useCommandApprovalStore }, { useFileViewerStore }]) => {
+          useQuestionStore.getState().clearSession(session.id)
+          usePermissionStore.getState().clearSession(session.id)
+          useCommandApprovalStore.getState().clearSession(session.id)
+          useFileViewerStore.getState().setActiveFile(null)
+          useFileViewerStore.getState().clearActiveDiff()
+        })
+      },
+
+      // Close all orphaned sessions (called when navigating away)
+      closeOrphanedSessions: () => {
+        set((state) => {
+          const hasOrphanedActive = state.activeSessionId && state.orphanedSessions.has(state.activeSessionId)
+
+          return {
+            orphanedSessions: new Map(),
+            activeSessionId: hasOrphanedActive ? null : state.activeSessionId
+          }
+        })
       }
     }),
     {

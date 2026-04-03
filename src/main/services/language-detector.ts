@@ -21,6 +21,11 @@ export async function detectProjectLanguage(projectPath: string): Promise<string
     if (has('requirements.txt') || has('pyproject.toml') || has('setup.py')) return 'python'
     if (has('Gemfile')) return 'ruby'
     if (has('Package.swift') || has('Podfile')) return 'swift'
+    try {
+      if (readdirSync(projectPath).some((f) => f.endsWith('.podspec'))) return 'swift'
+    } catch {
+      /* ignore */
+    }
     if (has('build.gradle.kts')) return 'kotlin'
     if (has('pom.xml') || has('build.gradle')) return 'java'
     if (has('composer.json')) return 'php'
@@ -43,6 +48,56 @@ export async function detectProjectLanguage(projectPath: string): Promise<string
   } catch (error) {
     log.error(
       'Failed to detect project language',
+      error instanceof Error ? error : new Error(String(error)),
+      { projectPath }
+    )
+    return null
+  }
+}
+
+/**
+ * Detect a project favicon by scanning well-known paths.
+ * Returns the absolute path of the first match, or null.
+ * Note: synchronous (only uses existsSync) but callers may await the result.
+ */
+export function detectProjectFavicon(projectPath: string): string | null {
+  try {
+    const candidates = [
+      // Next.js App Router
+      'app/icon.svg', 'app/favicon.svg',
+      'app/icon.png', 'app/favicon.png',
+      'app/favicon.ico',
+      // Next.js App Router with src/
+      'src/app/icon.svg', 'src/app/favicon.svg',
+      'src/app/icon.png', 'src/app/favicon.png',
+      'src/app/favicon.ico',
+      // Universal public/ (Vite, CRA, Next.js Pages)
+      'public/favicon.svg', 'public/icon.svg',
+      'public/favicon.png', 'public/icon.png',
+      'public/favicon.ico',
+      // SvelteKit / older frameworks
+      'static/favicon.svg',
+      'static/favicon.png',
+      'static/favicon.ico',
+      // Angular
+      'src/favicon.ico',
+      // Root fallback
+      'favicon.svg',
+      'favicon.png',
+      'favicon.ico'
+    ]
+
+    for (const candidate of candidates) {
+      const fullPath = join(projectPath, candidate)
+      if (existsSync(fullPath)) {
+        return fullPath
+      }
+    }
+
+    return null
+  } catch (error) {
+    log.error(
+      'Failed to detect project favicon',
       error instanceof Error ? error : new Error(String(error)),
       { projectPath }
     )

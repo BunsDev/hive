@@ -2,12 +2,14 @@ import { create } from 'zustand'
 import { useSessionStore } from './useSessionStore'
 import { useConnectionStore } from './useConnectionStore'
 import { lastSendMode } from '@/lib/message-send-times'
+import { notifyKanbanSessionSync } from './store-coordination'
 
 export type SessionStatusType =
   | 'working'
   | 'planning'
   | 'answering'
   | 'permission'
+  | 'command_approval'
   | 'unread'
   | 'completed'
   | 'plan_ready'
@@ -17,6 +19,7 @@ export interface SessionStatusEntry {
   timestamp: number
   word?: string
   durationMs?: number
+  tokenDelta?: number
 }
 
 interface WorktreeStatusState {
@@ -29,7 +32,7 @@ interface WorktreeStatusState {
   setSessionStatus: (
     sessionId: string,
     status: SessionStatusType | null,
-    metadata?: { word?: string; durationMs?: number }
+    metadata?: { word?: string; durationMs?: number; tokenDelta?: number }
   ) => void
   clearSessionStatus: (sessionId: string) => void
   clearWorktreeUnread: (worktreeId: string) => void
@@ -42,7 +45,8 @@ interface WorktreeStatusState {
 
 // Priority ranking for status aggregation (higher number = higher priority)
 const STATUS_PRIORITY: Record<SessionStatusType, number> = {
-  answering: 7,
+  answering: 8,
+  command_approval: 7,
   permission: 6,
   planning: 5,
   working: 4,
@@ -67,7 +71,7 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
   setSessionStatus: (
     sessionId: string,
     status: SessionStatusType | null,
-    metadata?: { word?: string; durationMs?: number }
+    metadata?: { word?: string; durationMs?: number; tokenDelta?: number }
   ) => {
     set((state) => ({
       sessionStatuses: {
@@ -75,6 +79,20 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
         [sessionId]: status ? { status, timestamp: Date.now(), ...metadata } : null
       }
     }))
+
+    // ── Kanban coordination: notify kanban store of relevant status changes ──
+    if (status === 'completed') {
+      const mode = lastSendMode.get(sessionId) as 'build' | 'plan' | undefined
+      notifyKanbanSessionSync(sessionId, {
+        type: 'session_completed',
+        sessionMode: mode,
+        tokenDelta: metadata?.tokenDelta
+      })
+    } else if (status === 'plan_ready') {
+      notifyKanbanSessionSync(sessionId, { type: 'plan_ready' })
+    } else if (status === 'working' || status === 'planning') {
+      notifyKanbanSessionSync(sessionId, { type: 'session_working' })
+    }
   },
 
   clearSessionStatus: (sessionId: string) => {
@@ -141,8 +159,8 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
       const entry = sessionStatuses[id]
       if (!entry) continue
 
-      // answering/permission have the highest priority — return immediately
-      if (entry.status === 'answering' || entry.status === 'permission') return entry.status
+      // answering/command_approval/permission have the highest priority — return immediately
+      if (entry.status === 'answering' || entry.status === 'command_approval' || entry.status === 'permission') return entry.status
       if (entry.status === 'planning') hasPlanning = true
       if (entry.status === 'working') hasWorking = true
       if (entry.status === 'plan_ready') hasPlanReady = true
@@ -190,7 +208,7 @@ export const useWorktreeStatusStore = create<WorktreeStatusState>((set, get) => 
       const entry = sessionStatuses[id]
       if (!entry) continue
 
-      if (entry.status === 'answering' || entry.status === 'permission') return entry.status
+      if (entry.status === 'answering' || entry.status === 'command_approval' || entry.status === 'permission') return entry.status
       if (entry.status === 'planning') hasPlanning = true
       if (entry.status === 'working') hasWorking = true
       if (entry.status === 'plan_ready') hasPlanReady = true

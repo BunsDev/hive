@@ -84,7 +84,8 @@ function symbolKindLabel(kind: number): string {
 function symbolKindColor(kind: number): string {
   if ([5, 11, 23].includes(kind)) return 'bg-purple-500/15 text-purple-500 dark:text-purple-400' // class/interface/struct
   if ([6, 9, 12].includes(kind)) return 'bg-blue-500/15 text-blue-500 dark:text-blue-400' // method/constructor/function
-  if ([7, 8, 13, 14].includes(kind)) return 'bg-emerald-500/15 text-emerald-500 dark:text-emerald-400' // property/field/variable/constant
+  if ([7, 8, 13, 14].includes(kind))
+    return 'bg-emerald-500/15 text-emerald-500 dark:text-emerald-400' // property/field/variable/constant
   if ([10, 22].includes(kind)) return 'bg-amber-500/15 text-amber-500 dark:text-amber-400' // enum/enum member
   if ([2, 3, 4].includes(kind)) return 'bg-cyan-500/15 text-cyan-500 dark:text-cyan-400' // module/namespace/package
   return 'bg-zinc-500/15 text-zinc-500 dark:text-zinc-400'
@@ -117,6 +118,12 @@ function tryParseJson(output: string): unknown | null {
 /** Extract hover content as a string */
 function extractHoverContent(data: unknown[]): string {
   const parts: string[] = []
+
+  // Guard against non-array data
+  if (!Array.isArray(data)) {
+    return ''
+  }
+
   for (const item of data) {
     const obj = item as Record<string, unknown>
     const contents = obj?.contents as Record<string, unknown> | string | undefined
@@ -248,7 +255,9 @@ function CallHierarchyList({
 }) {
   const calls = items.map((item) => {
     const obj = item as Record<string, unknown>
-    const target = (direction === 'incoming' ? obj.from : obj.to) as Record<string, unknown> | undefined
+    const target = (direction === 'incoming' ? obj.from : obj.to) as
+      | Record<string, unknown>
+      | undefined
     const name = (target?.name || 'unknown') as string
     const uri = (target?.uri || '') as string
     const range = (target?.range || target?.selectionRange || {}) as Record<string, unknown>
@@ -280,12 +289,7 @@ function CallHierarchyList({
         ))}
       </div>
       {needsTruncation && (
-        <ShowAllButton
-          showAll={showAll}
-          count={calls.length}
-          label="calls"
-          onToggle={onToggle}
-        />
+        <ShowAllButton showAll={showAll} count={calls.length} label="calls" onToggle={onToggle} />
       )}
     </div>
   )
@@ -372,7 +376,11 @@ function flattenSymbols(
     const locStart = (locRange.start || {}) as Record<string, number>
 
     const line =
-      start.line !== undefined ? start.line + 1 : locStart.line !== undefined ? locStart.line + 1 : null
+      start.line !== undefined
+        ? start.line + 1
+        : locStart.line !== undefined
+          ? locStart.line + 1
+          : null
     const path = locUri ? uriToPath(locUri) : null
 
     result.push({ name, kind, line, path, depth })
@@ -386,9 +394,7 @@ function flattenSymbols(
 }
 
 /** Flatten diagnostics into a renderable list grouped by file */
-function flattenDiagnostics(
-  data: Record<string, unknown[]>
-): Array<{
+function flattenDiagnostics(data: Record<string, unknown[]>): Array<{
   filePath: string
   severity: number
   message: string
@@ -400,7 +406,16 @@ function flattenDiagnostics(
     message: string
     line: number | null
   }> = []
+
+  // Guard against non-object data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return result
+  }
+
   for (const [filePath, diags] of Object.entries(data)) {
+    // Guard against non-array diags
+    if (!Array.isArray(diags)) continue
+
     for (const diag of diags as Array<Record<string, unknown>>) {
       const severity = (diag.severity || 4) as number
       const message = (diag.message || '') as string
@@ -542,7 +557,7 @@ export function LspToolView({ input, output, error }: ToolViewProps) {
       return (
         <div data-testid="lsp-tool-view">
           <LocationList
-            items={parsed as unknown[]}
+            items={Array.isArray(parsed) ? parsed : []}
             showAll={showAll}
             onToggle={toggleShowAll}
           />
@@ -552,7 +567,7 @@ export function LspToolView({ input, output, error }: ToolViewProps) {
     case 'hover':
       return (
         <div data-testid="lsp-tool-view">
-          <HoverView data={parsed as unknown[]} />
+          <HoverView data={Array.isArray(parsed) ? parsed : []} />
         </div>
       )
 
@@ -560,7 +575,7 @@ export function LspToolView({ input, output, error }: ToolViewProps) {
       return (
         <div data-testid="lsp-tool-view">
           <CallHierarchyList
-            items={parsed as unknown[]}
+            items={Array.isArray(parsed) ? parsed : []}
             direction="incoming"
             showAll={showAll}
             onToggle={toggleShowAll}
@@ -572,7 +587,7 @@ export function LspToolView({ input, output, error }: ToolViewProps) {
       return (
         <div data-testid="lsp-tool-view">
           <CallHierarchyList
-            items={parsed as unknown[]}
+            items={Array.isArray(parsed) ? parsed : []}
             direction="outgoing"
             showAll={showAll}
             onToggle={toggleShowAll}
@@ -584,7 +599,7 @@ export function LspToolView({ input, output, error }: ToolViewProps) {
       return (
         <div data-testid="lsp-tool-view">
           <SymbolList
-            items={parsed as unknown[]}
+            items={Array.isArray(parsed) ? parsed : []}
             showFilePath={false}
             showAll={showAll}
             onToggle={toggleShowAll}
@@ -596,7 +611,7 @@ export function LspToolView({ input, output, error }: ToolViewProps) {
       return (
         <div data-testid="lsp-tool-view">
           <SymbolList
-            items={parsed as unknown[]}
+            items={Array.isArray(parsed) ? parsed : []}
             showFilePath={true}
             showAll={showAll}
             onToggle={toggleShowAll}

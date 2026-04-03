@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { useIsWebMode } from '@/hooks/useIsWebMode'
+import { isMac as isMacPlatform, isWindows as isWindowsPlatform } from '@/lib/platform'
 import {
   useSettingsStore,
   type TerminalOption,
@@ -15,7 +17,7 @@ interface DetectedTerminal {
   available: boolean
 }
 
-const TERMINAL_OPTIONS: { id: TerminalOption; label: string }[] = [
+const MAC_TERMINAL_OPTIONS: { id: TerminalOption; label: string }[] = [
   { id: 'terminal', label: 'Terminal' },
   { id: 'iterm', label: 'iTerm2' },
   { id: 'warp', label: 'Warp' },
@@ -24,6 +26,26 @@ const TERMINAL_OPTIONS: { id: TerminalOption; label: string }[] = [
   { id: 'ghostty', label: 'Ghostty' },
   { id: 'custom', label: 'Custom Command' }
 ]
+
+const WINDOWS_TERMINAL_OPTIONS: { id: TerminalOption; label: string }[] = [
+  { id: 'terminal', label: 'Windows Terminal' },
+  { id: 'powershell', label: 'PowerShell' },
+  { id: 'cmd', label: 'Command Prompt' },
+  { id: 'custom', label: 'Custom Command' }
+]
+
+const LINUX_TERMINAL_OPTIONS: { id: TerminalOption; label: string }[] = [
+  { id: 'terminal', label: 'Default Terminal' },
+  { id: 'alacritty', label: 'Alacritty' },
+  { id: 'kitty', label: 'kitty' },
+  { id: 'custom', label: 'Custom Command' }
+]
+
+function getTerminalOptions(): { id: TerminalOption; label: string }[] {
+  if (isWindowsPlatform()) return WINDOWS_TERMINAL_OPTIONS
+  if (isMacPlatform()) return MAC_TERMINAL_OPTIONS
+  return LINUX_TERMINAL_OPTIONS
+}
 
 const BACKEND_OPTIONS: {
   id: EmbeddedTerminalBackend
@@ -45,6 +67,7 @@ const BACKEND_OPTIONS: {
 ]
 
 export function SettingsTerminal(): React.JSX.Element {
+  const isWebMode = useIsWebMode()
   const {
     defaultTerminal,
     customTerminalCommand,
@@ -117,6 +140,7 @@ export function SettingsTerminal(): React.JSX.Element {
   return (
     <div className="space-y-8">
       {/* Embedded Terminal Backend */}
+      {!isWebMode && (
       <div>
         <h3 className="text-base font-medium mb-1">Embedded Terminal</h3>
         <p className="text-sm text-muted-foreground mb-3">
@@ -201,6 +225,7 @@ export function SettingsTerminal(): React.JSX.Element {
           </>
         )}
       </div>
+      )}
 
       {/* External Terminal (Open in Terminal) */}
       <div>
@@ -216,7 +241,7 @@ export function SettingsTerminal(): React.JSX.Element {
           </div>
         ) : (
           <div className="space-y-1">
-            {TERMINAL_OPTIONS.map((opt) => {
+            {getTerminalOptions().map((opt) => {
               const available = isAvailable(opt.id)
               return (
                 <button
@@ -252,7 +277,7 @@ export function SettingsTerminal(): React.JSX.Element {
             <Input
               value={customTerminalCommand}
               onChange={(e) => updateSetting('customTerminalCommand', e.target.value)}
-              placeholder="e.g., /usr/local/bin/alacritty"
+              placeholder={isMacPlatform() ? 'e.g., /usr/local/bin/alacritty' : 'e.g., C:\\Program Files\\Alacritty\\alacritty.exe'}
               className="font-mono text-sm"
               data-testid="custom-terminal-command"
             />

@@ -3,12 +3,18 @@ import { Loader2 } from 'lucide-react'
 import { SessionTabs, SessionView } from '@/components/sessions'
 import { SessionTerminalView } from '@/components/sessions/SessionTerminalView'
 import { FileViewer } from '@/components/file-viewer'
-import { InlineDiffViewer } from '@/components/diff'
+import { InlineDiffViewer, ImageDiffView } from '@/components/diff'
+import { isImageFile } from '@shared/types/file-utils'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
+import { useKanbanStore } from '@/stores/useKanbanStore'
+import { useProjectStore } from '@/stores/useProjectStore'
+import { usePinnedStore } from '@/stores/usePinnedStore'
+import { KanbanBoard } from '@/components/kanban/KanbanBoard'
+import { KanbanIcon } from '@/components/kanban/KanbanIcon'
 
 const MonacoDiffView = lazy(() => import('@/components/diff/MonacoDiffView'))
 const WorktreeContextEditor = lazy(() =>
@@ -16,7 +22,6 @@ const WorktreeContextEditor = lazy(() =>
     default: m.WorktreeContextEditor
   }))
 )
-
 interface MainPaneProps {
   children?: React.ReactNode
 }
@@ -32,6 +37,13 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const contextEditorWorktreeId = useFileViewerStore((state) => state.contextEditorWorktreeId)
   const closedTerminalSessionIds = useSessionStore((state) => state.closedTerminalSessionIds)
   const ghosttyOverlaySuppressed = useLayoutStore((state) => state.ghosttyOverlaySuppressed)
+  const isBoardViewActive = useKanbanStore((state) => state.isBoardViewActive)
+  const isPinnedBoardActive = useKanbanStore((state) => state.isPinnedBoardActive)
+  const pinnedStoreLoaded = usePinnedStore((state) => state.loaded)
+  const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
+  const selectedProjectPath = useProjectStore((state) =>
+    state.projects.find((p) => p.id === state.selectedProjectId)?.path ?? ''
+  )
 
   // Subscribe to session maps so terminal list stays reactive
   const sessionsByWorktree = useSessionStore((state) => state.sessionsByWorktree)
@@ -157,6 +169,34 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
       return children
     }
 
+    // Pinned projects board view (independent of project/connection selection)
+    // Wait for pinned store to load so we don't flash an empty state on startup.
+    if (isPinnedBoardActive && pinnedStoreLoaded && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+      return <KanbanBoard isPinnedMode={true} />
+    }
+
+    // Board view — project-level (works with or without worktree selected)
+    if (isBoardViewActive && selectedProjectId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+      return <KanbanBoard projectId={selectedProjectId} projectPath={selectedProjectPath} />
+    }
+
+    // Board view — connection-level
+    if (isBoardViewActive && selectedConnectionId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+      return <KanbanBoard connectionId={selectedConnectionId} />
+    }
+
+    // Board view — no project selected yet (empty state)
+    if (isBoardViewActive && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          <div className="text-center">
+            <KanbanIcon className="h-8 w-8 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">Select a project to view its board</p>
+          </div>
+        </div>
+      )
+    }
+
     // No worktree or connection selected - show welcome message
     if (!selectedWorktreeId && !selectedConnectionId) {
       return (
@@ -183,6 +223,21 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
 
     // Diff viewer is active
     if (activeDiff) {
+      // Image files get their own viewer (binary diffs don't work in text editors)
+      if (isImageFile(activeDiff.filePath)) {
+        return (
+          <ImageDiffView
+            worktreePath={activeDiff.worktreePath}
+            filePath={activeDiff.filePath}
+            fileName={activeDiff.fileName}
+            staged={activeDiff.staged}
+            isUntracked={activeDiff.isUntracked}
+            isNewFile={activeDiff.isNewFile}
+            compareBranch={activeDiff.compareBranch}
+            onClose={handleCloseDiff}
+          />
+        )
+      }
       // New/untracked files use the syntax highlighter view (but not in branch mode —
       // branch diffs always use Monaco since we have an empty original to compare against)
       if ((activeDiff.isNewFile || activeDiff.isUntracked) && !activeDiff.compareBranch) {
@@ -208,6 +263,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
           }
         >
           <MonacoDiffView
+            key={`${activeDiff.filePath}|${activeDiff.compareBranch ?? ''}|${activeDiff.staged}|${activeDiff.prReviewWorktreeId ?? ''}`}
             worktreePath={activeDiff.worktreePath}
             filePath={activeDiff.filePath}
             fileName={activeDiff.fileName}
@@ -215,6 +271,9 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
             isUntracked={activeDiff.isUntracked}
             isNewFile={activeDiff.isNewFile}
             compareBranch={activeDiff.compareBranch}
+            scrollToLine={activeDiff.scrollToLine}
+            scrollTrigger={activeDiff.scrollTrigger}
+            prReviewWorktreeId={activeDiff.prReviewWorktreeId}
             onClose={handleCloseDiff}
           />
         </Suspense>

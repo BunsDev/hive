@@ -17,6 +17,11 @@ import { connectionQueryResolvers } from './query/connection.resolvers'
 import { connectionMutationResolvers } from './mutation/connection.resolvers'
 import { opencodeQueryResolvers } from './query/opencode.resolvers'
 import { opencodeMutationResolvers } from './mutation/opencode.resolvers'
+import { usageQueryResolvers } from './query/usage.resolvers'
+import { kanbanQueryResolvers } from './query/kanban.resolvers'
+import { kanbanMutationResolvers } from './mutation/kanban.resolvers'
+import { ticketImportQueryResolvers } from './query/ticket-import.resolvers'
+import { ticketImportMutationResolvers } from './mutation/ticket-import.resolvers'
 import { scriptQueryResolvers } from './query/script.resolvers'
 import { scriptMutationResolvers } from './mutation/script.resolvers'
 import { terminalMutationResolvers } from './mutation/terminal.resolvers'
@@ -68,6 +73,11 @@ export function mergeResolvers(): Resolvers {
     connectionMutationResolvers,
     opencodeQueryResolvers,
     opencodeMutationResolvers,
+    usageQueryResolvers,
+    kanbanQueryResolvers,
+    kanbanMutationResolvers,
+    ticketImportQueryResolvers,
+    ticketImportMutationResolvers,
     scriptQueryResolvers,
     scriptMutationResolvers,
     terminalMutationResolvers,

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import { useKanbanStore } from './useKanbanStore'
 
 // Project type matching the database schema
 interface Project {
@@ -10,6 +11,7 @@ interface Project {
   tags: string | null
   language: string | null
   custom_icon: string | null
+  detected_icon: string | null
   setup_script: string | null
   run_script: string | null
   archive_script: string | null
@@ -44,6 +46,7 @@ interface ProjectState {
       tags?: string[] | null
       language?: string | null
       custom_icon?: string | null
+      detected_icon?: string | null
       setup_script?: string | null
       run_script?: string | null
       archive_script?: string | null
@@ -52,10 +55,9 @@ interface ProjectState {
   ) => Promise<boolean>
   selectProject: (id: string | null) => void
   toggleProjectExpanded: (id: string) => void
-  expandAllProjects: () => void
   setEditingProject: (id: string | null) => void
   touchProject: (id: string) => Promise<void>
-  refreshLanguage: (projectId: string) => Promise<void>
+  refreshLanguage: (projectId: string, detectionPath?: string) => Promise<void>
   reorderProjects: (fromIndex: number, toIndex: number) => void
   sortProjectsByLastMessage: () => Promise<void>
   openProjectSettings: (projectId: string) => void
@@ -80,6 +82,30 @@ export const useProjectStore = create<ProjectState>()(
         try {
           const projects = await window.db.project.getAll()
           set({ projects, isLoading: false })
+
+          // Backfill favicon detection sequentially to avoid SQLite write contention
+          const unscanned = projects.filter((p) => p.detected_icon === null || p.detected_icon === undefined)
+          if (unscanned.length > 0) {
+            ;(async () => {
+              for (const project of unscanned) {
+                try {
+                  const detectedIcon = await window.projectOps.detectFavicon(project.path)
+                  await window.db.project.update(project.id, {
+                    detected_icon: detectedIcon ?? 'none'
+                  })
+                  set((state) => ({
+                    projects: state.projects.map((p) =>
+                      p.id === project.id
+                        ? { ...p, detected_icon: detectedIcon ?? 'none' }
+                        : p
+                    )
+                  }))
+                } catch {
+                  // Ignore errors for individual projects
+                }
+              }
+            })()
+          }
         } catch (error) {
           set({
             error: error instanceof Error ? error.message : 'Failed to load projects',
@@ -126,12 +152,37 @@ export const useProjectStore = create<ProjectState>()(
               // Ignore detection errors
             })
 
+          // Auto-detect favicon (fire and forget for speed)
+          window.projectOps
+            .detectFavicon(validation.path!)
+            .then(async (detectedIcon) => {
+              await window.db.project.update(project.id, {
+                detected_icon: detectedIcon ?? 'none'
+              })
+              set((state) => ({
+                projects: state.projects.map((p) =>
+                  p.id === project.id
+                    ? { ...p, detected_icon: detectedIcon ?? 'none' }
+                    : p
+                )
+              }))
+            })
+            .catch(() => {})
+
           // Add to state
           set((state) => ({
             projects: [project, ...state.projects],
             selectedProjectId: project.id,
             expandedProjectIds: new Set([...state.expandedProjectIds, project.id])
           }))
+
+          import('./useWorktreeStore')
+            .then(({ useWorktreeStore }) =>
+              useWorktreeStore.getState().syncWorktrees(project.id, validation.path!)
+            )
+            .catch(() => {
+              // Ignore initial sync errors
+            })
 
           return { success: true }
         } catch (error) {
@@ -190,6 +241,7 @@ export const useProjectStore = create<ProjectState>()(
           tags?: string[] | null
           language?: string | null
           custom_icon?: string | null
+          detected_icon?: string | null
           setup_script?: string | null
           run_script?: string | null
           archive_script?: string | null
@@ -220,6 +272,11 @@ export const useProjectStore = create<ProjectState>()(
       selectProject: (id: string | null) => {
         set({ selectedProjectId: id })
         if (id) {
+          // Close pinned board when navigating to a specific project
+          const kanbanState = useKanbanStore.getState()
+          if (kanbanState.isPinnedBoardActive) {
+            kanbanState.togglePinnedBoard()
+          }
           // Touch project to update last_accessed_at
           get().touchProject(id)
         }
@@ -236,11 +293,6 @@ export const useProjectStore = create<ProjectState>()(
           }
           return { expandedProjectIds: newExpandedIds }
         })
-      },
-
-      // Expand all projects (used by connection mode)
-      expandAllProjects: () => {
-        set({ expandedProjectIds: new Set(get().projects.map((p) => p.id)) })
       },
 
       // Set project being edited
@@ -264,15 +316,33 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       // Re-detect and update project language
-      refreshLanguage: async (projectId: string) => {
+      refreshLanguage: async (projectId: string, detectionPath?: string) => {
         const project = get().projects.find((p) => p.id === projectId)
         if (!project) return
         try {
-          const language = await window.projectOps.detectLanguage(project.path)
+          const path = detectionPath ?? project.path
+          const language = await window.projectOps.detectLanguage(path)
           await window.db.project.update(projectId, { language })
           set((state) => ({
             projects: state.projects.map((p) => (p.id === projectId ? { ...p, language } : p))
           }))
+
+          // Also refresh favicon detection
+          window.projectOps
+            .detectFavicon(path)
+            .then(async (detectedIcon) => {
+              await window.db.project.update(projectId, {
+                detected_icon: detectedIcon ?? 'none'
+              })
+              set((state) => ({
+                projects: state.projects.map((p) =>
+                  p.id === projectId
+                    ? { ...p, detected_icon: detectedIcon ?? 'none' }
+                    : p
+                )
+              }))
+            })
+            .catch(() => {})
         } catch {
           // Ignore refresh errors
         }

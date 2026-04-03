@@ -1,7 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Resolvers } from '../../__generated__/resolvers-types'
 import { openCodeService } from '../../../main/services/opencode-service'
-import { withSdkDispatch, withSdkDispatchByHiveSession } from '../helpers/sdk-dispatch'
+import { ClaudeCodeImplementer } from '../../../main/services/claude-code-implementer'
+import {
+  withSdkDispatch,
+  withSdkDispatchByHiveSession,
+  mapGraphQLSdkToInternal
+} from '../helpers/sdk-dispatch'
 
 export const opencodeMutationResolvers: Resolvers = {
   Mutation: {
@@ -100,8 +105,9 @@ export const opencodeMutationResolvers: Resolvers = {
     opencodeSetModel: async (_parent, { input }, ctx) => {
       try {
         const { providerID, modelID, variant, agentSdk } = input
-        if (agentSdk === 'claude_code' && ctx.sdkManager) {
-          const impl = ctx.sdkManager.getImplementer('claude-code')
+        if (agentSdk && agentSdk !== 'opencode' && ctx.sdkManager) {
+          const internalId = mapGraphQLSdkToInternal(agentSdk)
+          const impl = ctx.sdkManager.getImplementer(internalId)
           impl.setSelectedModel({ providerID, modelID, variant: variant ?? undefined })
           return { success: true }
         }
@@ -177,9 +183,27 @@ export const opencodeMutationResolvers: Resolvers = {
       }
     },
 
-    opencodePermissionReply: async (_parent, { input }) => {
+    opencodePermissionReply: async (_parent, { input }, ctx) => {
       try {
         const { requestId, reply, worktreePath, message } = input
+        // Check non-OpenCode implementers for the pending permission request
+        if (ctx.sdkManager) {
+          for (const sdkId of ['claude-code', 'codex'] as const) {
+            try {
+              const impl = ctx.sdkManager.getImplementer(sdkId) as any
+              if (impl.hasPendingApproval?.(requestId)) {
+                await impl.permissionReply(
+                  requestId,
+                  reply as 'once' | 'always' | 'reject',
+                  worktreePath ?? undefined
+                )
+                return { success: true }
+              }
+            } catch {
+              // Implementer doesn't exist or doesn't have hasPendingApproval — skip
+            }
+          }
+        }
         await openCodeService.permissionReply(
           requestId,
           reply as 'once' | 'always' | 'reject',
@@ -199,12 +223,15 @@ export const opencodeMutationResolvers: Resolvers = {
       try {
         const { requestId, answers, worktreePath } = input
         if (ctx.sdkManager) {
-          const claudeImpl = ctx.sdkManager.getImplementer('claude-code')
-          if ('hasPendingQuestion' in claudeImpl) {
-            const typedImpl = claudeImpl as any
-            if (typedImpl.hasPendingQuestion(requestId)) {
-              await typedImpl.questionReply(requestId, answers, worktreePath ?? undefined)
-              return { success: true }
+          for (const sdkId of ['claude-code', 'codex'] as const) {
+            try {
+              const impl = ctx.sdkManager.getImplementer(sdkId) as any
+              if (impl.hasPendingQuestion?.(requestId)) {
+                await impl.questionReply(requestId, answers, worktreePath ?? undefined)
+                return { success: true }
+              }
+            } catch {
+              // Implementer doesn't exist or doesn't have hasPendingQuestion — skip
             }
           }
         }
@@ -221,12 +248,15 @@ export const opencodeMutationResolvers: Resolvers = {
     opencodeQuestionReject: async (_parent, { requestId, worktreePath }, ctx) => {
       try {
         if (ctx.sdkManager) {
-          const claudeImpl = ctx.sdkManager.getImplementer('claude-code')
-          if ('hasPendingQuestion' in claudeImpl) {
-            const typedImpl = claudeImpl as any
-            if (typedImpl.hasPendingQuestion(requestId)) {
-              await typedImpl.questionReject(requestId, worktreePath ?? undefined)
-              return { success: true }
+          for (const sdkId of ['claude-code', 'codex'] as const) {
+            try {
+              const impl = ctx.sdkManager.getImplementer(sdkId) as any
+              if (impl.hasPendingQuestion?.(requestId)) {
+                await impl.questionReject(requestId, worktreePath ?? undefined)
+                return { success: true }
+              }
+            } catch {
+              // Implementer doesn't exist or doesn't have hasPendingQuestion — skip
             }
           }
         }
@@ -318,8 +348,7 @@ export const opencodeMutationResolvers: Resolvers = {
         await withSdkDispatch(
           ctx,
           opencodeSessionId,
-          () =>
-            openCodeService.renameSession(opencodeSessionId, title, worktreePath ?? undefined),
+          () => openCodeService.renameSession(opencodeSessionId, title, worktreePath ?? undefined),
           (impl) => impl.renameSession(worktreePath ?? '', opencodeSessionId, title)
         )
         return { success: true }
@@ -330,5 +359,25 @@ export const opencodeMutationResolvers: Resolvers = {
         }
       }
     },
+
+    opencodeCommandApprovalReply: async (_parent, { input }, ctx) => {
+      try {
+        const { requestId, approved } = input
+        // Command approval is Claude Code specific — route to its implementer
+        if (ctx.sdkManager) {
+          const impl = ctx.sdkManager.getImplementer('claude-code')
+          if (impl instanceof ClaudeCodeImplementer) {
+            impl.handleApprovalReply(requestId, approved)
+            return { success: true }
+          }
+        }
+        return { success: false, error: 'Claude Code implementer not available' }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    }
   }
 }

@@ -17,6 +17,7 @@ import csharpIcon from '@/assets/language-icons/csharp.svg'
 interface LanguageIconProps {
   language: string | null
   customIcon?: string | null
+  detectedIcon?: string | null
   className?: string
 }
 
@@ -142,13 +143,61 @@ function useProjectIconUrl(customIcon: string | null | undefined): string | null
   return url
 }
 
+// Module-level cache for resolved detected icon paths (absolute path -> data URL)
+const detectedIconCache = new Map<string, string>()
+
+function useDetectedIconUrl(detectedIcon: string | null | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(
+    detectedIcon && detectedIcon !== 'none'
+      ? (detectedIconCache.get(detectedIcon) ?? null)
+      : null
+  )
+
+  useEffect(() => {
+    if (!detectedIcon || detectedIcon === 'none') {
+      setUrl(null)
+      return
+    }
+
+    // Check cache first
+    const cached = detectedIconCache.get(detectedIcon)
+    if (cached) {
+      setUrl(cached)
+      return
+    }
+
+    // Resolve to data URL via main process
+    let cancelled = false
+    window.projectOps
+      .getAbsoluteIconDataUrl(detectedIcon)
+      .then((dataUrl) => {
+        if (cancelled) return
+        if (dataUrl) {
+          detectedIconCache.set(detectedIcon, dataUrl)
+          setUrl(dataUrl)
+        }
+      })
+      .catch(() => {
+        // ignore errors
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [detectedIcon])
+
+  return url
+}
+
 export function LanguageIcon({
   language,
   customIcon,
+  detectedIcon,
   className
 }: LanguageIconProps): React.JSX.Element {
   const customIcons = useCustomIcons()
   const projectIconUrl = useProjectIconUrl(customIcon)
+  const detectedIconUrl = useDetectedIconUrl(detectedIcon)
 
   // Priority 1: Custom project icon (per-project image file)
   if (customIcon && projectIconUrl) {
@@ -157,6 +206,18 @@ export function LanguageIcon({
         src={projectIconUrl}
         alt="project icon"
         title="Custom project icon"
+        className="h-4 w-4 shrink-0 object-contain rounded-sm"
+      />
+    )
+  }
+
+  // Priority 2: Auto-detected favicon
+  if (detectedIcon && detectedIcon !== 'none' && detectedIconUrl) {
+    return (
+      <img
+        src={detectedIconUrl}
+        alt="project favicon"
+        title="Auto-detected favicon"
         className="h-4 w-4 shrink-0 object-contain rounded-sm"
       />
     )

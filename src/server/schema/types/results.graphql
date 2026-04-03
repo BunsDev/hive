@@ -241,6 +241,21 @@ type ConnectionRemoveMemberResult {
   error: String
 }
 
+# Usage Results
+type UsageResult {
+  success: Boolean!
+  data: JSON
+  error: String
+}
+
+# File Results (image)
+type FileReadImageResult {
+  success: Boolean!
+  content: String
+  mimeType: String
+  error: String
+}
+
 # Subscription Events
 type WorktreeBranchRenamedEvent {
   worktreeId: ID!

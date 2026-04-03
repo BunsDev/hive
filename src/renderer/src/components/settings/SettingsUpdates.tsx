@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
+import { useIsWebMode } from '@/hooks/useIsWebMode'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { RefreshCw } from 'lucide-react'
 
 export function SettingsUpdates(): React.JSX.Element {
+  const isWebMode = useIsWebMode()
   const { updateChannel, updateSetting } = useSettingsStore()
   const [version, setVersion] = useState('')
   const [checking, setChecking] = useState(false)
@@ -19,11 +21,24 @@ export function SettingsUpdates(): React.JSX.Element {
   const handleCheckForUpdates = async (): Promise<void> => {
     setChecking(true)
     try {
-      await window.updaterOps?.checkForUpdate()
+      await window.updaterOps?.checkForUpdate({ manual: true })
     } catch {
       /* ignored */
     }
     setTimeout(() => setChecking(false), 2000)
+  }
+
+  if (isWebMode) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-base font-medium mb-1">Updates</h3>
+          <p className="text-sm text-muted-foreground">
+            Updates are managed by your server administrator
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

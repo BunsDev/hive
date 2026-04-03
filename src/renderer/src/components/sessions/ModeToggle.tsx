@@ -1,4 +1,4 @@
-import { Hammer, Map } from 'lucide-react'
+import { Hammer, Map, Sparkles } from 'lucide-react'
 import { useSessionStore, type SessionMode } from '@/stores/useSessionStore'
 import { cn } from '@/lib/utils'
 
@@ -19,14 +19,20 @@ const MODE_CONFIG: Record<
     label: 'Plan',
     icon: Map,
     description: 'Plan and design before implementing'
+  },
+  'super-plan': {
+    label: 'Super Plan',
+    icon: Sparkles,
+    description: 'Deep-dive interview to refine the plan'
   }
 }
 
 export function ModeToggle({ sessionId }: ModeToggleProps): React.JSX.Element {
-  const mode = useSessionStore((state) => state.modeBySession.get(sessionId) || 'build')
+  const rawMode = useSessionStore((state) => state.modeBySession.get(sessionId))
+  const mode: SessionMode = rawMode === 'plan' ? 'plan' : rawMode === 'super-plan' ? 'super-plan' : 'build'
   const toggleSessionMode = useSessionStore((state) => state.toggleSessionMode)
 
-  const config = MODE_CONFIG[mode]
+  const config = MODE_CONFIG[mode === 'super-plan' ? 'plan' : mode] ?? MODE_CONFIG.build
   const Icon = config.icon
 
   return (
