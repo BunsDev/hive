@@ -25,7 +25,9 @@ import {
   Github,
   ClipboardList,
   Upload,
-  FileJson
+  FileJson,
+  FileSearch,
+  GitPullRequest
 } from 'lucide-react'
 import { KanbanIcon } from '@/components/kanban/KanbanIcon'
 import { useSessionStore } from '@/stores/useSessionStore'
@@ -583,6 +585,8 @@ export function SessionTabs(): React.JSX.Element | null {
   const pushGhosttySuppression = useLayoutStore((state) => state.pushGhosttySuppression)
   const popGhosttySuppression = useLayoutStore((state) => state.popGhosttySuppression)
   const isBoardViewActive = useKanbanStore((state) => state.isBoardViewActive)
+  const pinnedSessionIds = useSessionStore((state) => state.pinnedSessionIds)
+  const activePinnedSessionId = useSessionStore((state) => state.activePinnedSessionId)
 
   // Determine whether we are in connection mode or worktree mode
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
@@ -1079,26 +1083,76 @@ export function SessionTabs(): React.JSX.Element | null {
         data-testid="session-tabs-scroll-container"
       >
         {isBoardViewActive ? (
-          /* Kanban board tab */
-          <div
-            data-testid="kanban-board-tab"
-            onClick={() => {
-              setActiveFile(null)
-              useFileViewerStore.getState().clearActiveDiff()
-              useFileViewerStore.getState().closeContextEditor()
-            }}
-            className={cn(
-              'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
-              'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
-              !isFileTabActive
-                ? 'bg-background text-foreground'
-                : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-          >
-            <KanbanIcon className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
-            <span className="truncate flex-1">Board</span>
-            {!isFileTabActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-          </div>
+          <>
+            {/* Kanban board tab */}
+            <div
+              data-testid="kanban-board-tab"
+              onClick={() => {
+                setActiveFile(null)
+                useFileViewerStore.getState().clearActiveDiff()
+                useFileViewerStore.getState().closeContextEditor()
+                useSessionStore.getState().setActivePinnedSession(null)
+              }}
+              className={cn(
+                'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
+                'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+                !isFileTabActive && !activePinnedSessionId
+                  ? 'bg-background text-foreground'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
+            >
+              <KanbanIcon className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+              <span className="truncate flex-1">Board</span>
+              {!isFileTabActive && !activePinnedSessionId && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
+            </div>
+            {/* Pinned session tabs */}
+            {Array.from(pinnedSessionIds).map((sessionId) => {
+              // Find the session object from the sessions map
+              let session: { id: string; name: string | null; mode?: string } | null = null
+              for (const sessions of sessionsByWorktree.values()) {
+                const found = sessions.find((s) => s.id === sessionId)
+                if (found) { session = found; break }
+              }
+              if (!session) return null
+
+              const isActive = activePinnedSessionId === sessionId && !isFileTabActive
+              const isReview = session.name?.toLowerCase().includes('review')
+              const Icon = isReview ? FileSearch : GitPullRequest
+
+              return (
+                <div
+                  key={sessionId}
+                  data-testid={`pinned-session-tab-${sessionId}`}
+                  onClick={() => {
+                    setActiveFile(null)
+                    useFileViewerStore.getState().clearActiveDiff()
+                    useFileViewerStore.getState().closeContextEditor()
+                    useSessionStore.getState().setActivePinnedSession(sessionId)
+                  }}
+                  className={cn(
+                    'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
+                    'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+                    isActive
+                      ? 'bg-background text-foreground'
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+                  <span className="truncate flex-1">{session.name || 'Session'}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useSessionStore.getState().unpinSessionFromBoard(sessionId)
+                    }}
+                    className="opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity ml-1"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
+                </div>
+              )
+            })}
+          </>
         ) : (
           /* Normal mode: empty state OR connection tabs + session tabs */
           orderedSessions.length === 0 &&

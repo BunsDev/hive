@@ -37,6 +37,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const contextEditorWorktreeId = useFileViewerStore((state) => state.contextEditorWorktreeId)
   const closedTerminalSessionIds = useSessionStore((state) => state.closedTerminalSessionIds)
   const ghosttyOverlaySuppressed = useLayoutStore((state) => state.ghosttyOverlaySuppressed)
+  const activePinnedSessionId = useSessionStore((state) => state.activePinnedSessionId)
   const isBoardViewActive = useKanbanStore((state) => state.isBoardViewActive)
   const isPinnedBoardActive = useKanbanStore((state) => state.isPinnedBoardActive)
   const pinnedStoreLoaded = usePinnedStore((state) => state.loaded)
@@ -167,6 +168,11 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const renderContent = () => {
     if (children) {
       return children
+    }
+
+    // Pinned session takes priority over board when active
+    if (isBoardViewActive && activePinnedSessionId && !activeFilePath && !activeDiff && !contextEditorWorktreeId) {
+      return <SessionView key={activePinnedSessionId} sessionId={activePinnedSessionId} />
     }
 
     // Pinned projects board view (independent of project/connection selection)
