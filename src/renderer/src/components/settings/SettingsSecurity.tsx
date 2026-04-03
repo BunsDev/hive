@@ -124,6 +124,55 @@ export function SettingsSecurity(): React.JSX.Element {
         </button>
       </div>
 
+      {/* Enter to Approve */}
+      <div className={cn('flex items-center justify-between', !isEnabled && 'opacity-50 pointer-events-none')}>
+        <div>
+          <label className="text-sm font-medium">Press Enter to approve commands</label>
+          <p className="text-xs text-muted-foreground">
+            When enabled, pressing Enter approves commands and disables chat input during approval
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={commandFilter.enterToApprove ?? false}
+          onClick={() => {
+            updateSetting('commandFilter', {
+              ...commandFilter,
+              enterToApprove: !commandFilter.enterToApprove
+            })
+          }}
+          disabled={!isEnabled}
+          style={{
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            height: '24px',
+            width: '44px',
+            flexShrink: 0,
+            cursor: isEnabled ? 'pointer' : 'not-allowed',
+            borderRadius: '9999px',
+            border: 'none',
+            backgroundColor: commandFilter.enterToApprove ? '#059669' : '#52525b',
+            transition: 'background-color 200ms'
+          }}
+          data-testid="enter-to-approve-toggle"
+        >
+          <span
+            style={{
+              pointerEvents: 'none',
+              display: 'block',
+              height: '18px',
+              width: '18px',
+              borderRadius: '9999px',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+              transition: 'transform 200ms',
+              transform: commandFilter.enterToApprove ? 'translateX(23px)' : 'translateX(3px)'
+            }}
+          />
+        </button>
+      </div>
+
       {/* Default Behavior */}
       <div className={cn('space-y-2', !isEnabled && 'opacity-50 pointer-events-none')}>
         <label className="text-sm font-medium">Default behavior for unlisted commands</label>

@@ -353,10 +353,13 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
   }, [sending, flatSuggestions, onReply, request.id])
 
   // Enter key handler: approve once (default) or confirm pattern if picker is open
+  // Only enabled when user has opted in via settings, and skips when user is typing in chat
+  const enterToApproveEnabled = commandFilter.enterToApprove
   useKeyboardShortcut({
     key: 'Enter',
     callback: patternPickerMode ? handleConfirmPattern : handleAllow,
-    enabled: !sending
+    enabled: !sending && enterToApproveEnabled,
+    skipWhenEditing: true
   })
 
   return (

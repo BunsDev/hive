@@ -7,6 +7,7 @@ interface ShortcutOptions {
   modifiers?: ModifierKey[]
   callback: () => void
   enabled?: boolean
+  skipWhenEditing?: boolean // Skip when focus is in input/textarea/contenteditable
 }
 
 /**
@@ -17,11 +18,24 @@ export function useKeyboardShortcut({
   key,
   modifiers = [],
   callback,
-  enabled = true
+  enabled = true,
+  skipWhenEditing = false
 }: ShortcutOptions): void {
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (!enabled) return
+
+      // Skip if user is typing in an input/textarea/contenteditable
+      if (skipWhenEditing) {
+        const target = event.target as HTMLElement
+        if (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable
+        ) {
+          return
+        }
+      }
 
       // Check if the key matches (case-insensitive)
       if (event.key.toLowerCase() !== key.toLowerCase()) return
@@ -47,7 +61,7 @@ export function useKeyboardShortcut({
       event.preventDefault()
       callback()
     },
-    [key, modifiers, callback, enabled]
+    [key, modifiers, callback, enabled, skipWhenEditing]
   )
 
   useEffect(() => {
