@@ -4432,6 +4432,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const createModal = document.querySelector('[data-testid="ticket-create-modal"]')
         if (createModal?.contains(document.activeElement)) return
 
+        // Don't intercept Tab when the xterm terminal is focused — it needs
+        // to reach the shell for tab completion.
+        const terminalContainer = document.querySelector('[data-testid="terminal-view-container"]')
+        if (terminalContainer?.contains(document.activeElement)) return
+
         e.preventDefault()
         e.stopPropagation()
         toggleSessionMode(sessionId)

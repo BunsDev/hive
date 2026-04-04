@@ -178,9 +178,15 @@ export function useKeyboardShortcuts(): void {
       // Each entry: [shortcutId, binding, handler, allowInInput]
       const shortcuts = getShortcutHandlers(getEffectiveBinding, isInputFocused)
 
+      // Don't intercept bare-key shortcuts (no modifiers) when the xterm terminal
+      // is focused — the terminal needs unmodified keystrokes for shell features
+      // like Tab completion. Modified shortcuts (Cmd+T, Cmd+W, etc.) still work.
+      const isTerminalFocused = target.closest?.('.xterm') !== null
+
       for (const { binding, handler, allowInInput } of shortcuts) {
         if (!binding) continue
         if (isInputFocused && !allowInInput) continue
+        if (isTerminalFocused && binding.modifiers.length === 0) continue
 
         if (eventMatchesBinding(event, binding)) {
           event.preventDefault()
