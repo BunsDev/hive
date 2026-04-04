@@ -474,7 +474,11 @@ export function Header(): React.JSX.Element {
               title="Review branch changes with AI"
               data-testid="review-button"
             >
-              <FileSearch className="h-3.5 w-3.5 mr-1" />
+              {lifecycleLoading ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <FileSearch className="h-3.5 w-3.5 mr-1" />
+              )}
               {showVimHints ? (
                 <span>
                   <span className="text-primary font-bold">R</span>eview
@@ -651,7 +655,11 @@ export function Header(): React.JSX.Element {
                 title="Create Pull Request (right-click to attach existing)"
                 data-testid="pr-button"
               >
-                <GitPullRequest className="h-3.5 w-3.5 mr-1" />
+                {lifecycleLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <GitPullRequest className="h-3.5 w-3.5 mr-1" />
+                )}
                 {showVimHints ? (
                   <span>
                     <span className="text-primary font-bold">P</span>R
