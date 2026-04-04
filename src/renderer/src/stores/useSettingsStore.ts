@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
+import type { UsageProvider } from '@shared/types/usage'
 
 // ==========================================
 // Types
@@ -86,7 +87,8 @@ export interface AppSettings {
   showModelProvider: boolean
 
   // Usage indicator
-  showUsageIndicator: boolean
+  usageIndicatorMode: 'current-agent' | 'specific-providers'
+  usageIndicatorProviders: UsageProvider[]
 
   // Agent SDK
   defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
@@ -136,7 +138,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   modelVariantDefaults: {},
   showModelIcons: false,
   showModelProvider: false,
-  showUsageIndicator: true,
+  usageIndicatorMode: 'current-agent',
+  usageIndicatorProviders: [],
   defaultAgentSdk: 'opencode',
   stripAtMentions: true,
   codexFastMode: false,
@@ -216,7 +219,7 @@ async function loadSettingsFromDatabase(): Promise<AppSettings | null> {
       const value = await window.db.setting.get(APP_SETTINGS_DB_KEY)
       if (value) {
         const parsed = JSON.parse(value)
-        return {
+        const result = {
           ...DEFAULT_SETTINGS,
           ...parsed,
           // Deep-merge commandFilter so new fields (e.g. `enabled`) always have defaults
@@ -226,6 +229,20 @@ async function loadSettingsFromDatabase(): Promise<AppSettings | null> {
             ...(parsed.commandFilter || {})
           }
         }
+
+        // Migrate legacy showUsageIndicator boolean
+        if ('showUsageIndicator' in parsed && !('usageIndicatorMode' in parsed)) {
+          if (parsed.showUsageIndicator === false) {
+            result.usageIndicatorMode = 'specific-providers'
+            result.usageIndicatorProviders = []
+          } else {
+            result.usageIndicatorMode = 'current-agent'
+            result.usageIndicatorProviders = []
+          }
+          delete (result as Record<string, unknown>).showUsageIndicator
+        }
+
+        return result
       }
     }
   } catch (error) {
@@ -258,7 +275,8 @@ function extractSettings(state: SettingsState): AppSettings {
     modelVariantDefaults: state.modelVariantDefaults,
     showModelIcons: state.showModelIcons,
     showModelProvider: state.showModelProvider,
-    showUsageIndicator: state.showUsageIndicator,
+    usageIndicatorMode: state.usageIndicatorMode,
+    usageIndicatorProviders: state.usageIndicatorProviders,
     defaultAgentSdk: state.defaultAgentSdk,
     stripAtMentions: state.stripAtMentions,
     codexFastMode: state.codexFastMode,
@@ -507,7 +525,8 @@ export const useSettingsStore = create<SettingsState>()(
         modelVariantDefaults: state.modelVariantDefaults,
         showModelIcons: state.showModelIcons,
         showModelProvider: state.showModelProvider,
-        showUsageIndicator: state.showUsageIndicator,
+        usageIndicatorMode: state.usageIndicatorMode,
+        usageIndicatorProviders: state.usageIndicatorProviders,
         defaultAgentSdk: state.defaultAgentSdk,
         activeSection: state.activeSection,
         stripAtMentions: state.stripAtMentions,

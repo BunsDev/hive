@@ -491,7 +491,11 @@ export function useOpenCodeGlobalListener(): void {
 
           if (status?.type !== 'idle') return
 
-          if (useSettingsStore.getState().showUsageIndicator) {
+          const { usageIndicatorMode, usageIndicatorProviders } = useSettingsStore.getState()
+          const usageEnabled =
+            usageIndicatorMode === 'current-agent' ||
+            (usageIndicatorMode === 'specific-providers' && usageIndicatorProviders.length > 0)
+          if (usageEnabled) {
             const sessionState = useSessionStore.getState()
             let idleSession: {
               agent_sdk?: string | null

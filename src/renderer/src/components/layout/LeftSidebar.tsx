@@ -22,7 +22,11 @@ import { RecentList } from './RecentList'
 export function LeftSidebar(): React.JSX.Element {
   const { leftSidebarWidth, leftSidebarCollapsed, setLeftSidebarWidth } = useLayoutStore()
   const projectCount = useProjectStore((s) => s.projects.length)
-  const showUsageIndicator = useSettingsStore((s) => s.showUsageIndicator)
+  const usageIndicatorMode = useSettingsStore((s) => s.usageIndicatorMode)
+  const usageIndicatorProviders = useSettingsStore((s) => s.usageIndicatorProviders)
+  const shouldShowUsageIndicator =
+    usageIndicatorMode === 'current-agent' ||
+    (usageIndicatorMode === 'specific-providers' && usageIndicatorProviders.length > 0)
   const [filterQuery, setFilterQuery] = useState('')
 
   // Filter store for language filters
@@ -175,7 +179,7 @@ export function LeftSidebar(): React.JSX.Element {
             activeLanguages={activeLanguages}
           />
         </div>
-        {!connectionModeActive && (showUsageIndicator ? <UsageIndicator /> : <SpacesTabBar />)}
+        {!connectionModeActive && (shouldShowUsageIndicator ? <UsageIndicator /> : <SpacesTabBar />)}
       </aside>
       <ResizeHandle onResize={handleResize} direction="left" />
     </div>

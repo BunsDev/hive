@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button'
 import { useShortcutStore } from '@/stores/useShortcutStore'
 import { DEFAULT_THEME_ID } from '@/lib/themes'
 import { toast } from '@/lib/toast'
+import type { UsageProvider } from '@shared/types/usage'
+import claudeIcon from '@/assets/model-icons/claude.svg'
+import openaiIcon from '@/assets/model-icons/openai.svg'
 
 export function SettingsGeneral(): React.JSX.Element {
   const { setTheme } = useThemeStore()
@@ -19,7 +22,8 @@ export function SettingsGeneral(): React.JSX.Element {
     breedType,
     showModelIcons,
     showModelProvider,
-    showUsageIndicator,
+    usageIndicatorMode,
+    usageIndicatorProviders,
     defaultAgentSdk,
     stripAtMentions,
     updateSetting,
@@ -32,6 +36,14 @@ export function SettingsGeneral(): React.JSX.Element {
     resetShortcuts()
     setTheme(DEFAULT_THEME_ID)
     toast.success('All settings reset to defaults')
+  }
+
+  const toggleProvider = (provider: UsageProvider): void => {
+    const current = usageIndicatorProviders
+    const updated = current.includes(provider)
+      ? current.filter((p) => p !== provider)
+      : [...current, provider]
+    updateSetting('usageIndicatorProviders', updated)
   }
 
   return (
@@ -284,30 +296,76 @@ export function SettingsGeneral(): React.JSX.Element {
       </div>
 
       {/* Usage indicator */}
-      <div className="flex items-center justify-between">
-        <div>
-          <label className="text-sm font-medium">Show usage indicator</label>
-          <p className="text-xs text-muted-foreground">
-            Show Claude API usage bars below projects. When off, shows spaces tab instead.
-          </p>
-        </div>
-        <button
-          role="switch"
-          aria-checked={showUsageIndicator}
-          onClick={() => updateSetting('showUsageIndicator', !showUsageIndicator)}
-          className={cn(
-            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-            showUsageIndicator ? 'bg-primary' : 'bg-muted'
-          )}
-          data-testid="show-usage-indicator-toggle"
-        >
-          <span
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Usage indicator</label>
+        <p className="text-xs text-muted-foreground">
+          Choose how usage is displayed. Current agent auto-detects from the active session. Specific providers lets you pin which usage bars always show.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => updateSetting('usageIndicatorMode', 'current-agent')}
             className={cn(
-              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
-              showUsageIndicator ? 'translate-x-4' : 'translate-x-0'
+              'px-3 py-1.5 rounded-md text-sm border transition-colors',
+              usageIndicatorMode === 'current-agent'
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-muted/50 text-muted-foreground border-border hover:bg-accent/50'
             )}
-          />
-        </button>
+            data-testid="usage-indicator-mode-current-agent"
+          >
+            Current agent
+          </button>
+          <button
+            onClick={() => updateSetting('usageIndicatorMode', 'specific-providers')}
+            className={cn(
+              'px-3 py-1.5 rounded-md text-sm border transition-colors',
+              usageIndicatorMode === 'specific-providers'
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-muted/50 text-muted-foreground border-border hover:bg-accent/50'
+            )}
+            data-testid="usage-indicator-mode-specific-providers"
+          >
+            Specific providers
+          </button>
+        </div>
+        {usageIndicatorMode === 'specific-providers' && (
+          <div className="ml-2 mt-2 space-y-2">
+            <button
+              role="checkbox"
+              aria-checked={usageIndicatorProviders.includes('anthropic')}
+              onClick={() => toggleProvider('anthropic')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm border transition-colors w-full',
+                usageIndicatorProviders.includes('anthropic')
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-muted/50 text-muted-foreground border-border hover:bg-accent/50'
+              )}
+              data-testid="usage-provider-anthropic"
+            >
+              <img src={claudeIcon} alt="Claude" className="h-3.5 w-3.5" />
+              Claude
+            </button>
+            <button
+              role="checkbox"
+              aria-checked={usageIndicatorProviders.includes('openai')}
+              onClick={() => toggleProvider('openai')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm border transition-colors w-full',
+                usageIndicatorProviders.includes('openai')
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-muted/50 text-muted-foreground border-border hover:bg-accent/50'
+              )}
+              data-testid="usage-provider-openai"
+            >
+              <img src={openaiIcon} alt="OpenAI" className="h-3.5 w-3.5" />
+              OpenAI
+            </button>
+            {usageIndicatorProviders.length === 0 && (
+              <p className="text-xs text-muted-foreground/70 italic">
+                Select at least one provider, or switch to Current agent mode.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Default Agent SDK */}
