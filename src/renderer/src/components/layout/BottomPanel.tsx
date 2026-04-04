@@ -188,6 +188,7 @@ export function BottomPanel({
           </button>
         )}
       </div>
+      {/* Use CSS hidden (not conditional rendering) to keep TerminalManager mounted and preserve PTY state */}
       <div className={cn("flex-1 min-h-0 overflow-hidden", isCollapsed && "hidden")} data-testid="bottom-panel-content">
         {effectiveTab === 'setup' && <SetupTab worktreeId={selectedWorktreeId} />}
         {effectiveTab === 'run' && <RunTab worktreeId={selectedWorktreeId} />}
