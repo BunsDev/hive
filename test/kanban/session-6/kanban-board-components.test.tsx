@@ -50,6 +50,8 @@ function makeTicket(overrides: Partial<KanbanTicket> = {}): KanbanTicket {
     worktree_id: null,
     mode: null,
     plan_ready: false,
+    github_pr_number: null,
+    github_pr_url: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides
@@ -171,6 +173,19 @@ describe('Session 6: Board Components', () => {
     render(<KanbanTicketCard ticket={makeTicket({ attachments: [] })} />)
 
     expect(screen.queryByTestId('kanban-ticket-attachments')).not.toBeInTheDocument()
+  })
+
+  test('KanbanTicketCard renders only the PR icon for attached GitHub PR references', () => {
+    const ticket = makeTicket({
+      github_pr_number: 42,
+      github_pr_url: 'https://github.com/org/repo/pull/42'
+    })
+
+    render(<KanbanTicketCard ticket={ticket} />)
+
+    const prBadge = screen.getByTitle('Open PR #42 in browser')
+    expect(prBadge).toHaveTextContent('#42')
+    expect(prBadge.querySelectorAll('svg')).toHaveLength(1)
   })
 
   test('KanbanTicketCard renders worktree name when worktree_id is set', () => {
