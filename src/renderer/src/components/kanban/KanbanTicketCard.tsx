@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
-import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink, X, FileText, Pin, PinOff, RefreshCw, Link as LinkIcon, Github } from 'lucide-react'
+import { Paperclip, AlertCircle, Trash2, Archive, ArchiveRestore, GitBranch, ExternalLink, X, FileText, Pin, PinOff, RefreshCw, Link as LinkIcon, GitPullRequest } from 'lucide-react'
 import { UpdateStatusModal } from './UpdateStatusModal'
 import { cn } from '@/lib/utils'
 import { ProviderIcon, getProviderLabel } from '@/components/ui/provider-icon'
@@ -518,7 +518,7 @@ export const KanbanTicketCard = memo(function KanbanTicketCard({
                     title={`Open PR #${ticket.github_pr_number} in browser`}
                     className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 transition-colors"
                   >
-                    <Github className="h-3 w-3" />
+                    <GitPullRequest className="h-3 w-3" />
                     #{ticket.github_pr_number}
                   </button>
                 )}
