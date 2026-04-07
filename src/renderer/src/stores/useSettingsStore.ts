@@ -123,7 +123,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoPullBeforeWorktree: true,
   breedType: 'dogs',
   vimModeEnabled: false,
-  mergeConflictMode: 'build',
+  mergeConflictMode: 'always-ask',
   boardMode: 'toggle',
   defaultEditor: 'vscode',
   customEditorCommand: '',
