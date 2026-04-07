@@ -15,84 +15,7 @@ import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { DiffViewer, type DiffViewMode } from './DiffViewer'
 import { cn } from '@/lib/utils'
-
-// Map file extensions to Prism language identifiers
-const extensionToLanguage: Record<string, string> = {
-  '.ts': 'typescript',
-  '.tsx': 'tsx',
-  '.js': 'javascript',
-  '.jsx': 'jsx',
-  '.mjs': 'javascript',
-  '.cjs': 'javascript',
-  '.json': 'json',
-  '.jsonc': 'json',
-  '.md': 'markdown',
-  '.mdx': 'markdown',
-  '.css': 'css',
-  '.scss': 'scss',
-  '.sass': 'sass',
-  '.less': 'less',
-  '.html': 'html',
-  '.htm': 'html',
-  '.xml': 'xml',
-  '.svg': 'xml',
-  '.vue': 'html',
-  '.svelte': 'html',
-  '.py': 'python',
-  '.rb': 'ruby',
-  '.go': 'go',
-  '.rs': 'rust',
-  '.java': 'java',
-  '.kt': 'kotlin',
-  '.kts': 'kotlin',
-  '.c': 'c',
-  '.h': 'c',
-  '.cpp': 'cpp',
-  '.hpp': 'cpp',
-  '.cc': 'cpp',
-  '.cs': 'csharp',
-  '.php': 'php',
-  '.swift': 'swift',
-  '.dart': 'dart',
-  '.sql': 'sql',
-  '.sh': 'bash',
-  '.bash': 'bash',
-  '.zsh': 'bash',
-  '.fish': 'bash',
-  '.ps1': 'powershell',
-  '.yaml': 'yaml',
-  '.yml': 'yaml',
-  '.toml': 'toml',
-  '.ini': 'ini',
-  '.env': 'bash',
-  '.dockerfile': 'docker',
-  '.graphql': 'graphql',
-  '.gql': 'graphql',
-  '.lua': 'lua',
-  '.r': 'r',
-  '.scala': 'scala',
-  '.zig': 'zig',
-  '.elm': 'elm',
-  '.ex': 'elixir',
-  '.exs': 'elixir',
-  '.erl': 'erlang',
-  '.clj': 'clojure',
-  '.hs': 'haskell',
-  '.ml': 'ocaml',
-  '.tf': 'hcl',
-  '.proto': 'protobuf',
-  '.bat': 'batch',
-  '.cmd': 'batch'
-}
-
-function getLanguageFromPath(filePath: string): string {
-  const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase()
-  const name = filePath.substring(filePath.lastIndexOf('/') + 1).toLowerCase()
-  if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'docker'
-  if (name === 'makefile') return 'makefile'
-  if (name === '.gitignore' || name === '.dockerignore') return 'bash'
-  return extensionToLanguage[ext] || 'text'
-}
+import { getPrismLanguage } from '@/lib/language-map'
 
 interface InlineDiffViewerProps {
   worktreePath: string
@@ -356,7 +279,7 @@ export function InlineDiffViewer({
         {!isLoading && !error && isNewFile && fileContent !== null ? (
           <div className="overflow-auto flex-1" data-testid="plain-file-content">
             <SyntaxHighlighter
-              language={getLanguageFromPath(filePath)}
+              language={getPrismLanguage(filePath)}
               style={oneDark}
               showLineNumbers
               wrapLines

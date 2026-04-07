@@ -4,80 +4,10 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ToolViewProps } from './types'
+import { getPrismLanguage } from '@/lib/language-map'
 
 const MAX_PREVIEW_LINES = 20
 
-const extensionToLanguage: Record<string, string> = {
-  '.ts': 'typescript',
-  '.tsx': 'tsx',
-  '.js': 'javascript',
-  '.jsx': 'jsx',
-  '.mjs': 'javascript',
-  '.cjs': 'javascript',
-  '.json': 'json',
-  '.jsonc': 'json',
-  '.md': 'markdown',
-  '.mdx': 'markdown',
-  '.css': 'css',
-  '.scss': 'scss',
-  '.sass': 'sass',
-  '.less': 'less',
-  '.html': 'html',
-  '.htm': 'html',
-  '.xml': 'xml',
-  '.svg': 'xml',
-  '.vue': 'html',
-  '.svelte': 'html',
-  '.py': 'python',
-  '.rb': 'ruby',
-  '.go': 'go',
-  '.rs': 'rust',
-  '.java': 'java',
-  '.kt': 'kotlin',
-  '.kts': 'kotlin',
-  '.c': 'c',
-  '.h': 'c',
-  '.cpp': 'cpp',
-  '.hpp': 'cpp',
-  '.cc': 'cpp',
-  '.cs': 'csharp',
-  '.php': 'php',
-  '.swift': 'swift',
-  '.dart': 'dart',
-  '.sql': 'sql',
-  '.sh': 'bash',
-  '.bash': 'bash',
-  '.zsh': 'bash',
-  '.fish': 'bash',
-  '.env': 'bash',
-  '.yaml': 'yaml',
-  '.yml': 'yaml',
-  '.toml': 'toml',
-  '.ini': 'ini',
-  '.dockerfile': 'docker',
-  '.graphql': 'graphql',
-  '.gql': 'graphql',
-  '.lua': 'lua',
-  '.r': 'r',
-  '.scala': 'scala',
-  '.ex': 'elixir',
-  '.exs': 'elixir',
-  '.erl': 'erlang',
-  '.clj': 'clojure',
-  '.hs': 'haskell',
-  '.ml': 'ocaml',
-  '.tf': 'hcl',
-  '.proto': 'protobuf'
-}
-
-function getLanguageFromPath(filePath: string): string {
-  const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase()
-  const name = filePath.substring(filePath.lastIndexOf('/') + 1).toLowerCase()
-  if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'docker'
-  if (name === 'makefile') return 'makefile'
-  if (name === '.gitignore' || name === '.dockerignore') return 'bash'
-  return extensionToLanguage[ext] || 'text'
-}
 
 export function WriteToolView({ input, error }: ToolViewProps) {
   const [showAll, setShowAll] = useState(false)
@@ -85,7 +15,7 @@ export function WriteToolView({ input, error }: ToolViewProps) {
   const filePath = (input.file_path || input.filePath || input.path || '') as string
   const content = (input.content || '') as string
 
-  const language = useMemo(() => (filePath ? getLanguageFromPath(filePath) : 'text'), [filePath])
+  const language = useMemo(() => (filePath ? getPrismLanguage(filePath) : 'text'), [filePath])
 
   if (error) {
     return (
