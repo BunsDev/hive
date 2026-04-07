@@ -4,6 +4,7 @@ import { ChevronRight, ChevronDown, Plus, Zap, Archive } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { KanbanTicketCard } from '@/components/kanban/KanbanTicketCard'
 import { TicketCreateModal } from '@/components/kanban/TicketCreateModal'
 import { WorktreePickerModal } from '@/components/kanban/WorktreePickerModal'
@@ -439,15 +440,22 @@ export function KanbanColumn({ column, tickets, archivedTickets, projectId, conn
                 ON (default) = flow mode: automated worktree picker on drop.
                 OFF = simple mode: direct drop, no modal. */}
             {isInProgressColumn && (
-              <div className="ml-2 flex shrink-0 items-center gap-1.5">
-                <Zap className={cn('h-3 w-3', !isSimpleMode ? 'text-amber-500' : 'text-muted-foreground/50')} />
-                <Switch
-                  data-testid="simple-mode-toggle"
-                  size="sm"
-                  checked={!isSimpleMode}
-                  onCheckedChange={(checked) => handleSimpleModeToggle(!checked)}
-                />
-              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="ml-2 flex shrink-0 items-center gap-1.5">
+                    <Zap className={cn('h-3 w-3', !isSimpleMode ? 'text-amber-500' : 'text-muted-foreground/50')} />
+                    <Switch
+                      data-testid="simple-mode-toggle"
+                      size="sm"
+                      checked={!isSimpleMode}
+                      onCheckedChange={(checked) => handleSimpleModeToggle(!checked)}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={8}>
+                  Send to agent when dragged to this column
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {/* Archive toggle — right of title, vertically centered */}

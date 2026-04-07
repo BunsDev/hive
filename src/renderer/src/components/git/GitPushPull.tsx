@@ -6,8 +6,7 @@ import {
   ChevronDown,
   GitBranch,
   Search,
-  Archive,
-  Trash2
+  Archive
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
@@ -287,20 +286,6 @@ export function GitPushPull({
     setArchiveConfirmFiles([])
   }, [])
 
-  const handleDeleteBranch = useCallback(async () => {
-    if (!worktreePath || !mergeBranch) return
-    try {
-      const result = await window.gitOps.deleteBranch(worktreePath, mergeBranch)
-      if (result.success) {
-        toast.success(`Deleted branch ${mergeBranch}`)
-        setMergeBranch('')
-      } else {
-        toast.error('Failed to delete branch', { description: result.error })
-      }
-    } catch {
-      toast.error('Failed to delete branch')
-    }
-  }, [worktreePath, mergeBranch, setMergeBranch])
 
   const doMerge = useCallback(async () => {
     if (!worktreePath || !mergeBranch.trim()) return
@@ -515,16 +500,7 @@ export function GitPushPull({
             Archive
           </Button>
         ) : isBranchMerged && !selectedBranchInfo?.isRemote ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-6 text-xs whitespace-nowrap"
-            onClick={handleDeleteBranch}
-            data-testid="delete-branch-button"
-          >
-            <Trash2 className="h-3 w-3 mr-1" />
-            Delete
-          </Button>
+          null
         ) : (
           <Button
             variant="outline"
