@@ -45,7 +45,18 @@ export function GitCommitForm({
     return []
   }, [worktreePath, worktreesByProject])
 
-  // Pre-populate summary and description from session titles on mount
+  // Get worktree name as fallback for empty commit messages
+  const worktreeName: string = useMemo(() => {
+    if (!worktreePath) return ''
+    for (const worktrees of worktreesByProject.values()) {
+      const wt = worktrees.find((w) => w.path === worktreePath)
+      if (wt) return wt.name
+    }
+    return ''
+  }, [worktreePath, worktreesByProject])
+
+  // Pre-populate summary and description from session titles on mount,
+  // falling back to worktree name when no session titles exist
   const hasPrePopulated = useRef(false)
   useEffect(() => {
     if (hasPrePopulated.current) return
@@ -55,8 +66,11 @@ export function GitCommitForm({
       if (sessionTitles.length > 1) {
         setDescription(sessionTitles.map((t) => `- ${t}`).join('\n'))
       }
+    } else if (worktreeName && !summary) {
+      hasPrePopulated.current = true
+      setSummary(worktreeName)
     }
-  }, [sessionTitles]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionTitles, worktreeName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Subscribe to store state for staged files count
   const fileStatusesByWorktree = useGitStore((state) => state.fileStatusesByWorktree)
