@@ -49,14 +49,16 @@ export async function generateText(
 ): Promise<string | null> {
   const resolvedProvider = resolveProvider(provider)
   if (!resolvedProvider) {
-    log.warn('No text generation provider available')
-    return null
+    throw new Error(
+      'No AI provider available. Ensure claude, codex, or opencode CLI is installed and on your PATH.'
+    )
   }
 
   if (resolvedProvider !== provider) {
     log.info('Falling back to available provider', { requested: provider, resolved: resolvedProvider })
   }
 
+  let lastError: Error | null = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const result = await generateWithProvider(resolvedProvider, prompt, systemPrompt, modelOverride)
@@ -64,15 +66,16 @@ export async function generateText(
         log.info('Text generation succeeded', { provider: resolvedProvider, attempt })
         return result
       }
+      lastError = new Error('Text generation returned empty result')
       log.warn('Text generation returned empty result', { provider: resolvedProvider, attempt })
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      log.warn('Text generation attempt failed', { provider: resolvedProvider, attempt, error: errMsg })
+      lastError = err instanceof Error ? err : new Error(String(err))
+      log.warn('Text generation attempt failed', { provider: resolvedProvider, attempt, error: lastError.message })
     }
   }
 
   log.warn('Text generation: all attempts exhausted', { provider: resolvedProvider })
-  return null
+  throw lastError ?? new Error('Text generation failed: all attempts returned empty results')
 }
 
 /**
@@ -135,7 +138,7 @@ async function generateWithClaude(prompt: string, systemPrompt: string, modelOve
       options: {
         cwd: homedir(),
         model: modelOverride ?? 'haiku',
-        maxTurns: 1,
+        maxTurns: 2,
         abortController,
         systemPrompt,
         effort: 'low',
@@ -146,9 +149,37 @@ async function generateWithClaude(prompt: string, systemPrompt: string, modelOve
     })
 
     let resultText = ''
+    let streamedText = ''
     for await (const msg of query) {
+      // Collect assistant text as it streams — fallback if the session ends early
+      if (msg.type === 'assistant') {
+        const content = (msg as Record<string, unknown>).message
+        if (content && typeof content === 'object') {
+          const blocks = (content as Record<string, unknown>).content
+          if (Array.isArray(blocks)) {
+            for (const block of blocks) {
+              if (block && typeof block === 'object' && (block as Record<string, unknown>).type === 'text') {
+                streamedText += (block as Record<string, unknown>).text ?? ''
+              }
+            }
+          }
+        }
+      }
       if (msg.type === 'result') {
-        resultText = (msg as { result?: string }).result ?? ''
+        const resultMsg = msg as Record<string, unknown>
+        if (typeof resultMsg.subtype === 'string' && resultMsg.subtype.startsWith('error')) {
+          // For max_turns errors, use whatever text was already streamed
+          if (resultMsg.subtype === 'error_max_turns' && streamedText) {
+            log.info('Using streamed text after max_turns reached')
+            resultText = streamedText
+            break
+          }
+          const errors = Array.isArray(resultMsg.errors) ? resultMsg.errors : []
+          throw new Error(
+            `Claude generation error (${resultMsg.subtype}): ${errors.join('; ') || 'unknown'}`
+          )
+        }
+        resultText = (resultMsg.result as string) ?? ''
         break
       }
     }
