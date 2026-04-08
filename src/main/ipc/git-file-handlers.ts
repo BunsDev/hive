@@ -1077,6 +1077,106 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
       }
     }
   )
+
+  // Get range diff between base branch and HEAD
+  ipcMain.handle(
+    'git:getRangeDiff',
+    async (
+      _event,
+      worktreePath: string,
+      baseBranch: string
+    ): Promise<{
+      commitSummary: string
+      diffSummary: string
+      diffPatch: string
+      commitCount: number
+    }> => {
+      try {
+        const gitService = createGitService(worktreePath)
+        return await gitService.getRangeDiff(baseBranch)
+      } catch (error) {
+        log.warn('getRangeDiff IPC failed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return { commitSummary: '', diffSummary: '', diffPatch: '', commitCount: 0 }
+      }
+    }
+  )
+
+  // Check if current branch needs push
+  ipcMain.handle(
+    'git:needsPush',
+    async (_event, worktreePath: string): Promise<boolean> => {
+      try {
+        const gitService = createGitService(worktreePath)
+        return await gitService.needsPush()
+      } catch {
+        return false
+      }
+    }
+  )
+
+  // Create a pull request via gh CLI
+  ipcMain.handle(
+    'git:createPR',
+    async (
+      _event,
+      worktreePath: string,
+      baseBranch: string,
+      title: string,
+      body: string
+    ): Promise<{ success: boolean; url?: string; number?: number; error?: string }> => {
+      try {
+        const gitService = createGitService(worktreePath)
+        return await gitService.createPullRequest({ baseBranch, title, body })
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }
+    }
+  )
+
+  // Generate PR content via AI
+  ipcMain.handle(
+    'git:generatePRContent',
+    async (
+      _event,
+      worktreePath: string,
+      baseBranch: string,
+      provider: string
+    ): Promise<{ success: boolean; title?: string; body?: string; error?: string }> => {
+      try {
+        const validProviders = ['claude-code', 'codex', 'opencode', 'terminal']
+        if (!validProviders.includes(provider)) {
+          return { success: false, error: `Invalid provider: ${provider}` }
+        }
+
+        const gitService = createGitService(worktreePath)
+        const rangeDiff = await gitService.getRangeDiff(baseBranch)
+        const branchInfo = await gitService.getBranchInfo()
+
+        const { generatePRContent } = await import('../services/pr-content-generator')
+        const result = await generatePRContent({
+          baseBranch,
+          headBranch: branchInfo.branch?.name ?? 'HEAD',
+          commitSummary: rangeDiff.commitSummary,
+          diffSummary: rangeDiff.diffSummary,
+          diffPatch: rangeDiff.diffPatch,
+          provider: provider as import('../services/agent-sdk-types').AgentSdkId
+        })
+
+        if (!result) return { success: false, error: 'Content generation failed' }
+        return { success: true, title: result.title, body: result.body }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }
+    }
+  )
 }
 
 // Re-export cleanup functions for app quit handler

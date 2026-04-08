@@ -16,6 +16,7 @@ import { usePinnedStore } from '@/stores/usePinnedStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 import { KanbanIcon } from '@/components/kanban/KanbanIcon'
+import { PRNotificationStack } from '@/components/pr/PRNotificationStack'
 
 const MonacoDiffView = lazy(() => import('@/components/diff/MonacoDiffView'))
 const WorktreeContextEditor = lazy(() =>
@@ -364,9 +365,10 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
 
   return (
     <main
-      className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden"
+      className="relative flex-1 flex flex-col min-w-0 bg-background overflow-hidden"
       data-testid="main-pane"
     >
+      <PRNotificationStack />
       {(selectedWorktreeId || selectedConnectionId) && <SessionTabs />}
       {renderContent()}
       {/* Always-mounted terminal sessions — kept alive to preserve PTY state across tab switches */}

@@ -1118,7 +1118,48 @@ const gitOps = {
     success: boolean
     diff?: string
     error?: string
-  }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath)
+  }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath),
+
+  // Get range diff (commit summary, diff summary, diff patch) between worktree and base branch
+  getRangeDiff: (
+    worktreePath: string,
+    baseBranch: string
+  ): Promise<{
+    commitSummary: string
+    diffSummary: string
+    diffPatch: string
+    commitCount: number
+  }> => ipcRenderer.invoke('git:getRangeDiff', worktreePath, baseBranch),
+
+  // Check if the worktree has unpushed commits
+  needsPush: (
+    worktreePath: string
+  ): Promise<boolean> => ipcRenderer.invoke('git:needsPush', worktreePath),
+
+  // Create a pull request on GitHub
+  createPR: (
+    worktreePath: string,
+    baseBranch: string,
+    title: string,
+    body: string
+  ): Promise<{
+    success: boolean
+    prNumber?: number
+    prUrl?: string
+    error?: string
+  }> => ipcRenderer.invoke('git:createPR', worktreePath, baseBranch, title, body),
+
+  // Generate PR title and body using AI
+  generatePRContent: (
+    worktreePath: string,
+    baseBranch: string,
+    provider: string
+  ): Promise<{
+    success: boolean
+    title?: string
+    body?: string
+    error?: string
+  }> => ipcRenderer.invoke('git:generatePRContent', worktreePath, baseBranch, provider)
 }
 
 const opencodeOps = {
