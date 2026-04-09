@@ -117,6 +117,18 @@ export const VirtualizedMessageList = memo(
       result.push({ type: 'completion' as const })
     }
 
+    // DEBUG: trace what the list sees for error/completion state
+    if (sessionErrorMessage || completionEntry) {
+      console.log('[ERROR_FLOW_DEBUG] VirtualizedMessageList items computed', {
+        sessionErrorMessage: sessionErrorMessage ?? '(null)',
+        sessionErrorStderr: sessionErrorStderr?.substring(0, 100) ?? '(null)',
+        completionEntry,
+        isSending,
+        hasErrorBanner: result.some(i => i.type === 'error-banner'),
+        hasCompletionBadge: result.some(i => i.type === 'completion')
+      })
+    }
+
     return result
   }, [
     messages,
