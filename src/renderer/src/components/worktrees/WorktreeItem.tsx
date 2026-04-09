@@ -26,7 +26,6 @@ import {
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -159,25 +158,8 @@ export function WorktreeItem({
   const isChecked = connectionModeSelectedIds.has(worktree.id)
   const hasNamedBranch = Boolean(worktree.branch_name)
 
-  const worktreeLabel =
-    worktree.is_default || !worktree.branch_name || displayName === worktree.branch_name
-      ? displayName
-      : `${displayName} - ${worktree.branch_name}`
-
   const renderWorktreeName = (): React.JSX.Element => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="text-sm truncate block cursor-default">{displayName}</span>
-      </TooltipTrigger>
-      <TooltipContent side="top" sideOffset={8} className="max-w-[32rem] px-3.5 py-2.5 text-sm">
-        <div className="space-y-1.5">
-          <div className="font-medium leading-none">{worktreeLabel}</div>
-          <div className="font-mono text-xs leading-relaxed text-background/80 break-all">
-            {worktree.path}
-          </div>
-        </div>
-      </TooltipContent>
-    </Tooltip>
+    <span className="text-sm truncate block cursor-default">{displayName}</span>
   )
 
   // Auto-refresh relative time every 60 seconds
