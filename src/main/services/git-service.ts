@@ -420,6 +420,10 @@ export class GitService {
         })
       }
 
+      // Clean up the remote-tracking ref (e.g. origin/branch-name)
+      // This is local-only and prevents stale refs from cluttering branch lists
+      await this.deleteRemoteTrackingBranch(branchName)
+
       return { success: true }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -1693,6 +1697,25 @@ export class GitService {
         repoPath: this.repoPath
       })
       return { success: false, error: message }
+    }
+  }
+
+  /**
+   * Delete a remote-tracking reference (e.g. origin/branch-name).
+   * This is a local-only operation — it does not contact the remote.
+   * Used during archive to clean up stale refs after a PR is merged.
+   */
+  private async deleteRemoteTrackingBranch(branchName: string, remote = 'origin'): Promise<void> {
+    if (!branchName) return
+    try {
+      await this.git.branch(['-dr', `${remote}/${branchName}`])
+    } catch (error) {
+      // Remote-tracking ref may not exist (branch was never pushed, or already pruned)
+      log.warn('Failed to delete remote-tracking branch (may not exist)', {
+        branchName,
+        remote,
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
   }
 
