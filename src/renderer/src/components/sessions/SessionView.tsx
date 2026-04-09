@@ -1570,18 +1570,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             })
           }
 
-          // DEBUG: trace error-related events before sessionId filter
-          if (event.type === 'session.error' || (event.type === 'session.status' && (event.statusPayload?.type === 'idle' || event.data?.status?.type === 'idle'))) {
-            console.log('[ERROR_FLOW_DEBUG] Stream event BEFORE filter', {
-              type: event.type,
-              eventSessionId: event.sessionId,
-              componentSessionId: sessionId,
-              match: event.sessionId === sessionId,
-              childSessionId: event.childSessionId ?? null,
-              data: event.type === 'session.error' ? event.data : undefined
-            })
-          }
-
           // Only handle events for this session
           if (event.sessionId !== sessionId) return
 
@@ -1894,19 +1882,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const eventRole = getEventMessageRole(event.data)
 
           if (event.type === 'session.error') {
-            if (event.childSessionId) {
-              console.log('[ERROR_FLOW_DEBUG] session.error SKIPPED (child session)', { childSessionId: event.childSessionId })
-              return
-            }
-            const extractedMsg = extractSessionErrorMessage(event.data)
-            const extractedStderr = extractSessionErrorStderr(event.data)
-            console.log('[ERROR_FLOW_DEBUG] session.error PROCESSING — setting state', {
-              extractedMsg,
-              extractedStderr: extractedStderr?.substring(0, 200) ?? '(null)',
-              rawData: event.data
-            })
-            setSessionErrorMessage(extractedMsg)
-            setSessionErrorStderr(extractedStderr)
+            if (event.childSessionId) return
+            setSessionErrorMessage(extractSessionErrorMessage(event.data))
+            setSessionErrorStderr(extractSessionErrorStderr(event.data))
             // Notify kanban store so errored tickets auto-move to review
             notifyKanbanSessionSync(sessionId, { type: 'session_error' })
             return
@@ -2490,12 +2468,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   }
                 },
                 onComplete: () => {
-                  // DEBUG: trace error state at onComplete time
-                  // We need to read current state via updater function to see actual value
-                  setSessionErrorMessage((prev) => {
-                    console.log('[ERROR_FLOW_DEBUG] onComplete fired — current sessionErrorMessage:', prev)
-                    return prev // don't change it
-                  })
                   // Session is done — flush and finalize immediately
                   setSessionRetry(null)
                   immediateFlush()

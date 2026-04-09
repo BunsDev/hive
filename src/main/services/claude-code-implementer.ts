@@ -500,11 +500,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         },
         stderr: (data: string) => {
           session.stderrBuffer.push(data)
-          log.warn('[ERROR_FLOW_DEBUG] stderr callback fired', {
+          log.warn('Claude Code stderr', {
             worktreePath,
             agentSessionId,
-            stderr: data.trim().substring(0, 300),
-            bufferLengthNow: session.stderrBuffer.length
+            stderr: data.trim().substring(0, 300)
           })
         },
         canUseTool: this.createCanUseToolCallback(session),
@@ -592,21 +591,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           hasContent: !!sdkMessage.content,
           keys: Object.keys(sdkMessage).join(',')
         })
-
-        // DEBUG: log message content for error flow tracing
-        {
-          const content = sdkMessage.content as Array<Record<string, unknown>> | undefined
-          const textParts = Array.isArray(content)
-            ? content.filter((c) => c.type === 'text').map((c) => String(c.text || '').substring(0, 200))
-            : []
-          log.warn('[ERROR_FLOW_DEBUG] SDK message content', {
-            type: msgType,
-            subtype: (sdkMessage as Record<string, unknown>).subtype ?? null,
-            index: messageIndex,
-            textPreview: textParts.length > 0 ? textParts : '(no text parts)',
-            stderrBufferSoFar: session.stderrBuffer.length
-          })
-        }
 
         // Log init messages (includes MCP server connection status) and cache slash commands
         // SDK sends init as { type: 'system', subtype: 'init' }
@@ -909,6 +893,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         // Emit normalized event
         this.emitSdkMessage(session.hiveSessionId, sdkMessage, messageIndex, session.toolNames, hasStreamedContent)
         messageIndex++
+
+        // Reset streaming flag after each result so the next message sequence
+        // (e.g. a tool result following a streamed LLM response) gets fresh tracking.
+        // Without this, a single stream_event early in the loop would suppress
+        // result-text emission for all subsequent non-streamed results.
+        if (msgType === 'result') {
+          hasStreamedContent = false
+        }
       }
 
       log.info('Prompt: async iteration loop finished', {
@@ -921,15 +913,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       // This handles cases where Claude exits with a bad code but the SDK
       // ends iteration normally instead of throwing.
       const stderrAfterLoop = session.stderrBuffer.join('').trim()
-
-      // DEBUG: trace error forwarding
-      log.warn('[ERROR_FLOW_DEBUG] Loop finished — safety net check', {
-        stderrAfterLoop: stderrAfterLoop || '(empty)',
-        messageIndex,
-        aborted: session.abortController?.signal.aborted ?? false,
-        hiveSessionId: session.hiveSessionId,
-        safetyNetWillFire: !!(stderrAfterLoop && messageIndex === 0 && !session.abortController?.signal.aborted)
-      })
 
       if (stderrAfterLoop && messageIndex === 0 && !session.abortController?.signal.aborted) {
         log.warn('Prompt: SDK exited silently with stderr and no messages', {
@@ -970,14 +953,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           ...(Object.keys(errorExtras).length > 0 ? { errorExtras } : {})
         }
       )
-
-      // DEBUG: trace error forwarding from catch block
-      log.warn('[ERROR_FLOW_DEBUG] Catch block — emitting session.error', {
-        hiveSessionId: session.hiveSessionId,
-        error: errorMessage,
-        stderr: stderrOutput ?? '(none)',
-        stderrBufferLength: session.stderrBuffer.length
-      })
 
       this.sendToRenderer('opencode:stream', {
         type: 'session.error',
@@ -2669,6 +2644,28 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
             }
           }
         })
+
+        // When no stream_event deltas were produced (e.g. fast/cached responses,
+        // SDK-internal handling), emit text blocks as message.part.updated so the
+        // renderer has content to display.
+        if (!hasStreamedContent && Array.isArray(innerContent)) {
+          for (const block of innerContent) {
+            const b = block as Record<string, unknown>
+            if (b.type === 'text' && typeof b.text === 'string' && (b.text as string).length > 0) {
+              this.sendToRenderer('opencode:stream', {
+                type: 'message.part.updated',
+                sessionId: hiveSessionId,
+                childSessionId,
+                data: {
+                  part: { type: 'text', text: b.text as string },
+                  delta: b.text as string,
+                  messageIndex,
+                  role: 'assistant'
+                }
+              })
+            }
+          }
+        }
 
         // Also emit tool result status updates.  When the complete assistant
         // message arrives, user-type messages with tool_result content follow.

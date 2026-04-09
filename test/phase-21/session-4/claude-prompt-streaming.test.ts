@@ -144,10 +144,12 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
         {
           type: 'assistant',
           session_id: 'sdk-1',
-          content: [
-            { type: 'text', text: 'First block' },
-            { type: 'text', text: 'Second block' }
-          ]
+          message: {
+            content: [
+              { type: 'text', text: 'First block' },
+              { type: 'text', text: 'Second block' }
+            ]
+          }
         }
       ])
       mockQuery.mockReturnValue(iter)
@@ -157,11 +159,11 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
       const events = getStreamEvents(mockWindow)
       const partEvents = events.filter((e: any) => e.type === 'message.part.updated')
       expect(partEvents.length).toBeGreaterThanOrEqual(2)
-      expect(partEvents[0].data.content).toMatchObject({
+      expect(partEvents[0].data.part).toMatchObject({
         type: 'text',
         text: 'First block'
       })
-      expect(partEvents[1].data.content).toMatchObject({
+      expect(partEvents[1].data.part).toMatchObject({
         type: 'text',
         text: 'Second block'
       })
