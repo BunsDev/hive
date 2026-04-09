@@ -2470,8 +2470,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 onComplete: () => {
                   // Session is done — flush and finalize immediately
                   setSessionRetry(null)
-                  setSessionErrorMessage(null)
-                  setSessionErrorStderr(null)
                   immediateFlush()
                   setIsSending(false)
                   setQueuedMessages([])
