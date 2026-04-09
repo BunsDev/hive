@@ -143,10 +143,28 @@ export function useLifecycleActions(worktreeId: string | null): LifecycleActions
     }
     window.gitOps.listBranchesWithStatus(worktree.path).then((result) => {
       if (result.success) {
-        setRemoteBranches(result.branches.filter((b: { isRemote: boolean }) => b.isRemote))
+        const filtered = result.branches.filter((b: { isRemote: boolean }) => b.isRemote)
+
+        // Pin the default branch (e.g. origin/main) to the top
+        if (worktreeId) {
+          const projectId = resolveProjectId(worktreeId)
+          if (projectId) {
+            const defaultWt = useWorktreeStore.getState().getDefaultWorktree(projectId)
+            if (defaultWt?.branch_name) {
+              const defaultRemoteName = `origin/${defaultWt.branch_name}`
+              filtered.sort((a, b) => {
+                if (a.name === defaultRemoteName) return -1
+                if (b.name === defaultRemoteName) return 1
+                return 0
+              })
+            }
+          }
+        }
+
+        setRemoteBranches(filtered)
       }
     })
-  }, [worktree?.path])
+  }, [worktree?.path, worktreeId])
 
   // --- Clear live state when attached PR changes ---
   useEffect(() => {

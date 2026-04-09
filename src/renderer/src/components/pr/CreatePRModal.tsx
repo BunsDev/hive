@@ -65,6 +65,14 @@ export function CreatePRModal({
   const gitCommit = useGitStore((s) => s.commit)
   const defaultAgentSdk = useSettingsStore((s) => s.defaultAgentSdk) ?? 'claude-code'
   const availableAgentSdks = useSettingsStore((s) => s.availableAgentSdks)
+  const defaultBranchName = useWorktreeStore((s) => {
+    for (const [, worktrees] of s.worktreesByProject) {
+      if (worktrees.some((w) => w.id === worktreeId)) {
+        return worktrees.find((w) => w.is_default)?.branch_name ?? null
+      }
+    }
+    return null
+  })
 
   // ── Session titles for commit message pre-fill ──────────────────
   const worktreesByProject = useWorktreeStore((s) => s.worktreesByProject)
@@ -189,8 +197,13 @@ export function CreatePRModal({
     if (baseBranch && !result.includes(baseBranch)) {
       result.unshift(baseBranch)
     }
-    return result.sort()
-  }, [remoteBranches, baseBranch])
+    // Sort alphabetically, but pin the default branch to the top
+    return result.sort((a, b) => {
+      if (a === defaultBranchName) return -1
+      if (b === defaultBranchName) return 1
+      return a.localeCompare(b)
+    })
+  }, [remoteBranches, baseBranch, defaultBranchName])
 
   // ── Commit phase handlers ────────────────────────────────────
   const handleStageAll = useCallback(async () => {
