@@ -506,7 +506,7 @@ ok "Homebrew repo pushed"
 
 # ── Phase 5b: Update official Homebrew cask ──────────────────────
 info "Submitting PR to official Homebrew cask..."
-if bash "$SCRIPT_DIR/update-homebrew-cask.sh" "$NEW_VERSION" "$SHA_ARM" "$SHA_X64"; then
+if HOMEBREW_GITHUB_API_TOKEN="${GH_TOKEN:-}" brew bump-cask-pr --version="$NEW_VERSION" --no-browse hive-app; then
   ok "Official Homebrew cask PR submitted"
 else
   warn "Failed to submit official Homebrew cask PR (non-fatal)"

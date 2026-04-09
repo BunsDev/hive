@@ -224,21 +224,6 @@ jobs:
           git add Casks/hive.rb
           git commit -m "Update Hive to v${VERSION}"
           git push origin main
-      - name: Update official Homebrew cask
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_PAT }}
-        run: |
-          VERSION="${{ needs.start.outputs.version }}"
-
-          # Reuse DMGs from prior step if present, download any missing ones
-          [[ -f "Hive-${VERSION}-arm64.dmg" ]] || gh release download "v${VERSION}" -p "Hive-${VERSION}-arm64.dmg"
-          [[ -f "Hive-${VERSION}.dmg" ]]       || gh release download "v${VERSION}" -p "Hive-${VERSION}.dmg"
-
-          SHA_ARM=$(sha256sum "Hive-${VERSION}-arm64.dmg" | awk '{print $1}')
-          SHA_X64=$(sha256sum "Hive-${VERSION}.dmg" | awk '{print $1}')
-
-          bash scripts/update-homebrew-cask.sh "$VERSION" "$SHA_ARM" "$SHA_X64"
       - name: Telegram — release complete
         run: |
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
@@ -256,3 +241,14 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.MORIKO_TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.MORIKO_TELEGRAM_OPERATOR_CHAT_ID }}
+
+  update-official-cask:
+    if: ${{ success() && inputs.skip_finalize != true }}
+    runs-on: macos-latest
+    needs: [start, finalize]
+    continue-on-error: true
+    steps:
+      - name: Update official Homebrew cask
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_PAT }}
+        run: brew bump-cask-pr --version=${{ needs.start.outputs.version }} --no-browse hive-app

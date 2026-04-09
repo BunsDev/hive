@@ -59,7 +59,6 @@ scripts/*
 !scripts/release-github.sh
 !scripts/finalize.sh
 !scripts/release.sh
-!scripts/update-homebrew-cask.sh
 !scripts/prepare-win-deps.sh
 !scripts/codex-app-server-probe.ts
 
